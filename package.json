@@ -1,0 +1,53 @@
+{
+  "name": "taxi-queue-monorepo",
+  "version": "1.0.0",
+  "description": "Taxi Queue Management System - Microservices Monorepo",
+  "private": true,
+  "workspaces": [
+    "api-gateway",
+    "auth-service",
+    "user-service",
+    "queue-service",
+    "geo-service",
+    "payment-service",
+    "vehicle-service",
+    "config-service"
+  ],
+  "scripts": {
+    "commit": "git-cz",
+    "prepare": "husky install",
+    "lint:commit": "commitlint --edit",
+    "release": "standard-version",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^17.4.2",
+    "@commitlint/config-conventional": "^17.4.2",
+    "commitizen": "^4.3.1",
+    "cz-conventional-changelog": "^3.0.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.1.0",
+    "standard-version": "^9.5.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sarfaraj84/Taxi-Queue-Microservices.git"
+  },
+  "keywords": [
+    "taxi",
+    "queue",
+    "microservices",
+    "nodejs",
+    "docker"
+  ],
+  "author": "Sarfaraj Shahjahan",
+  "license": "MIT"
+}
