@@ -25,7 +25,12 @@
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f"
+    "docker:logs": "docker-compose logs -f",
+    "generate:grpc": "node generator/src/cli.js generate",
+    "generate:grpc:auth": "node generator/src/cli.js generate --name auth-service --template grpc-auth --port 50051",
+    "generate:grpc:user": "node generator/src/cli.js generate --name user-service --template grpc-basic --port 50052",
+    "generate:grpc:queue": "node generator/src/cli.js generate --name queue-service --template grpc-queue --port 50053",
+    "generate:grpc:payment": "node generator/src/cli.js generate --name payment-service --template grpc-basic --port 50054"
   },
   "devDependencies": {
     "@commitlint/cli": "^17.4.2",
