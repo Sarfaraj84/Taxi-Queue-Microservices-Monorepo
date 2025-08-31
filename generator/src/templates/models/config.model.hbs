@@ -1,0 +1,68 @@
+const mongoose = require('mongoose');
+
+const configSchema = new mongoose.Schema({
+  key: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  value: {
+    type: String,
+    required: true
+  },
+  description: {
+    type: String
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, {
+  timestamps: true
+});
+
+const feeConfigSchema = new mongoose.Schema({
+  terminal: {
+    type: String,
+    required: true
+  },
+  vehicleType: {
+    type: String,
+    required: true
+  },
+  divisionType: {
+    type: String,
+    enum: ['percentage', 'fixed'],
+    required: true
+  },
+  platformShare: {
+    type: Number,
+    required: true
+  },
+  airportShare: {
+    type: Number,
+    required: true
+  },
+  minFee: {
+    type: Number
+  },
+  maxFee: {
+    type: Number
+  },
+  applicableTerminals: [String],
+  applicableVehicleTypes: [String],
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, {
+  timestamps: true
+});
+
+// Compound index for fee config
+feeConfigSchema.index({ terminal: 1, vehicleType: 1 }, { unique: true });
+
+module.exports = {
+  Config: mongoose.model('Config', configSchema),
+  FeeConfig: mongoose.model('FeeConfig', feeConfigSchema)
+};
