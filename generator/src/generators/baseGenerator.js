@@ -74,12 +74,13 @@ class BaseGenerator {
       cors: '^2.8.5',
       helmet: '^6.0.1',
       dotenv: '^16.0.3',
+      ioredis: '^5.3.2', // Add Redis to all services
     };
 
     const dbDeps = {
       mongodb: { mongoose: '^6.8.0' },
       postgres: { pg: '^8.8.0', 'pg-hstore': '^2.3.4' },
-      redis: { redis: '^4.6.0', ioredis: '^5.3.2' },
+      redis: { redis: '^4.6.0' },
     };
 
     return { ...baseDeps, ...(dbDeps[this.dbType] || {}) };
@@ -137,7 +138,11 @@ CONFIG_SERVICE_URL=localhost:50057
       postgres: `POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/${this.serviceKey}db`,
       redis: `REDIS_URL=redis://localhost:6379/${this.serviceKey}`,
     };
-    return dbEnvMap[this.dbType] || '';
+    return `
+${dbEnvMap[this.dbType] || ''}
+REDIS_URL=redis://localhost:6379/${this.serviceKey}
+CACHE_TTL=3600
+  `.trim();
   }
 
   async createGitignore() {

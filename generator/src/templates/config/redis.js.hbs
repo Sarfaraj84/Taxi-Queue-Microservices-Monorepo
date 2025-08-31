@@ -1,0 +1,92 @@
+const Redis = require('ioredis');
+require('dotenv').config();
+
+class RedisCache {
+  constructor() {
+    this.client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+      maxRetriesPerRequest: 3
+    });
+
+    this.client.on('error', (error) => {
+      console.error('Redis error:', error);
+    });
+
+    this.client.on('connect', () => {
+      console.log('Redis connected successfully');
+    });
+  }
+
+  async set(key, value, ttl = 3600) {
+    try {
+      const serialized = typeof value === 'object' ? JSON.stringify(value) : value;
+      if (ttl) {
+        await this.client.setex(key, ttl, serialized);
+      } else {
+        await this.client.set(key, serialized);
+      }
+      return true;
+    } catch (error) {
+      console.error('Redis set error:', error);
+      return false;
+    }
+  }
+
+  async get(key) {
+    try {
+      const data = await this.client.get(key);
+      if (!data) return null;
+      
+      try {
+        return JSON.parse(data);
+      } catch {
+        return data;
+      }
+    } catch (error) {
+      console.error('Redis get error:', error);
+      return null;
+    }
+  }
+
+  async del(key) {
+    try {
+      await this.client.del(key);
+      return true;
+    } catch (error) {
+      console.error('Redis delete error:', error);
+      return false;
+    }
+  }
+
+  async keys(pattern) {
+    try {
+      return await this.client.keys(pattern);
+    } catch (error) {
+      console.error('Redis keys error:', error);
+      return [];
+    }
+  }
+
+  async flush() {
+    try {
+      await this.client.flushall();
+      return true;
+    } catch (error) {
+      console.error('Redis flush error:', error);
+      return false;
+    }
+  }
+
+  async quit() {
+    try {
+      await this.client.quit();
+    } catch (error) {
+      console.error('Redis quit error:', error);
+    }
+  }
+}
+
+module.exports = new RedisCache();
