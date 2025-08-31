@@ -1,8 +1,6 @@
 const BaseGenerator = require('./baseGenerator');
 const path = require('path');
 const fs = require('fs-extra');
-const { compileTemplate } = require('../utils/templateUtils');
-const FileUtils = require('../utils/fileUtils');
 
 class GeoGenerator extends BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -10,61 +8,15 @@ class GeoGenerator extends BaseGenerator {
   }
 
   async generateServiceSpecificFiles() {
+    // These are now handled by the base class
     await this.createProtoFile();
     await this.createServerFile();
     await this.createServiceFile();
     await this.createClientFile();
+    await this.createModelFiles();
+
+    // Service-specific additional setup
     await this.createAdditionalFiles();
-  }
-
-  async createProtoFile() {
-    const protoContent = await compileTemplate('proto/geo.proto.hbs', {
-      serviceName: this.serviceKey,
-    });
-
-    await fs.writeFile(
-      path.join(this.servicePath, 'src/proto', `${this.serviceKey}.proto`),
-      protoContent
-    );
-  }
-
-  async createServerFile() {
-    const serverContent = await compileTemplate('service/server.js.hbs', {
-      serviceName: this.serviceKey,
-      serviceNamePascal: this.toPascalCase(this.serviceKey),
-      port: this.port,
-    });
-
-    await fs.writeFile(
-      path.join(this.servicePath, 'src/server.js'),
-      serverContent
-    );
-  }
-
-  async createServiceFile() {
-    const serviceContent = await compileTemplate('service/service.js.hbs', {
-      serviceName: this.serviceKey,
-      serviceNamePascal: this.serviceNamePascal,
-      serviceNameUpperCase: this.serviceNameUpperCase,
-    });
-
-    await FileUtils.createFile(
-      path.join(this.servicePath, `src/services/${this.serviceKey}Service.js`),
-      serviceContent
-    );
-  }
-
-  async createClientFile() {
-    const clientContent = await compileTemplate('service/client.js.hbs', {
-      serviceName: this.serviceKey,
-      serviceNamePascal: this.toPascalCase(this.serviceKey),
-      port: this.port,
-    });
-
-    await fs.writeFile(
-      path.join(this.servicePath, `src/client/${this.serviceKey}Client.js`),
-      clientContent
-    );
   }
 
   async createAdditionalFiles() {
