@@ -181,6 +181,117 @@ logs/
     );
   }
 
+  async createProtoFile() {
+    try {
+      const protoContent = await compileTemplate(
+        `proto/${this.serviceKey}.proto.hbs`,
+        {
+          serviceName: this.serviceKey,
+          serviceNamePascal: this.serviceNamePascal,
+        }
+      );
+
+      await FileUtils.createFile(
+        path.join(this.servicePath, 'src/proto', `${this.serviceKey}.proto`),
+        protoContent
+      );
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Could not create proto file for ${this.serviceName}: ${error.message}`
+        )
+      );
+    }
+  }
+
+  async createModelFiles() {
+    if (this.dbType === 'none') return;
+
+    try {
+      const modelContent = await compileTemplate(
+        `models/${this.serviceKey}.model.hbs`,
+        {
+          serviceName: this.serviceKey,
+          serviceNamePascal: this.serviceNamePascal,
+        }
+      );
+
+      await FileUtils.createFile(
+        path.join(
+          this.servicePath,
+          'src/models',
+          `${this.serviceNamePascal}.js`
+        ),
+        modelContent
+      );
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Could not create model file for ${this.serviceName}: ${error.message}`
+        )
+      );
+    }
+  }
+
+  async createServiceFile() {
+    try {
+      const serviceContent = await compileTemplate('service/service.js.hbs', {
+        serviceName: this.serviceKey,
+        serviceNamePascal: this.serviceNamePascal,
+        serviceNameUpperCase: this.serviceNameUpperCase,
+      });
+
+      await FileUtils.createFile(
+        path.join(
+          this.servicePath,
+          `src/services/${this.serviceKey}Service.js`
+        ),
+        serviceContent
+      );
+    } catch (error) {
+      throw new Error(`Failed to create service file: ${error.message}`);
+    }
+  }
+
+  async createClientFile() {
+    try {
+      const clientContent = await compileTemplate('service/client.js.hbs', {
+        serviceName: this.serviceKey,
+        serviceNamePascal: this.serviceNamePascal,
+        serviceNameUpperCase: this.serviceNameUpperCase,
+        port: this.port,
+      });
+
+      await FileUtils.createFile(
+        path.join(this.servicePath, `src/client/${this.serviceKey}Client.js`),
+        clientContent
+      );
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Could not create client file for ${this.serviceName}: ${error.message}`
+        )
+      );
+    }
+  }
+
+  async createServerFile() {
+    try {
+      const serverContent = await compileTemplate('service/server.js.hbs', {
+        serviceName: this.serviceKey,
+        serviceNamePascal: this.serviceNamePascal,
+        port: this.port,
+      });
+
+      await FileUtils.createFile(
+        path.join(this.servicePath, 'src/server.js'),
+        serverContent
+      );
+    } catch (error) {
+      throw new Error(`Failed to create server file: ${error.message}`);
+    }
+  }
+
   async generateServiceSpecificFiles() {
     // To be implemented by specific service generators
   }
