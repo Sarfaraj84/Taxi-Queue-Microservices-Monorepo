@@ -1,0 +1,101 @@
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+const path = require('path');
+require('dotenv').config();
+
+// Load proto file
+const PROTO_PATH = path.join(__dirname, 'proto/{{serviceName}}.proto');
+const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+  keepCase: true,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+});
+
+const {{serviceName}}Proto = grpc.loadPackageDefinition(packageDefinition).{{serviceName}};
+
+// Import service implementation
+const {{serviceNamePascal}}Service = require('./services/{{serviceName}}Service');
+
+class GrpcServer {
+  constructor() {
+    this.server = new grpc.Server();
+    this.port = process.env.GRPC_PORT || {{port}};
+    this.service = new {{serviceNamePascal}}Service();
+  }
+
+  start() {
+    this.server.addService(
+      {{serviceName}}Proto.{{serviceNamePascal}}Service.service,
+      {
+        {{#if (eq serviceName 'auth')}}
+        Login: this.service.login.bind(this.service),
+        Register: this.service.register.bind(this.service),
+        VerifyToken: this.service.verifyToken.bind(this.service),
+        RefreshToken: this.service.refreshToken.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'user')}}
+        GetUser: this.service.getUser.bind(this.service),
+        GetUsers: this.service.getUsers.bind(this.service),
+        UpdateUser: this.service.updateUser.bind(this.service),
+        DeleteUser: this.service.deleteUser.bind(this.service),
+        CreateUser: this.service.createUser.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'queue')}}
+        AddToQueue: this.service.addToQueue.bind(this.service),
+        RemoveFromQueue: this.service.removeFromQueue.bind(this.service),
+        GetQueueStatus: this.service.getQueueStatus.bind(this.service),
+        GetDriverPosition: this.service.getDriverPosition.bind(this.service),
+        ReleaseDrivers: this.service.releaseDrivers.bind(this.service),
+        HandleAirportClosure: this.service.handleAirportClosure.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'geo')}}
+        IsPointInGeofence: this.service.isPointInGeofence.bind(this.service),
+        AddGeofence: this.service.addGeofence.bind(this.service),
+        CalculateDistance: this.service.calculateDistance.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'vehicle')}}
+        RegisterVehicle: this.service.registerVehicle.bind(this.service),
+        SetActiveVehicle: this.service.setActiveVehicle.bind(this.service),
+        GetDriverVehicles: this.service.getDriverVehicles.bind(this.service),
+        UpdateVehicle: this.service.updateVehicle.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'payment')}}
+        ProcessPayment: this.service.processPayment.bind(this.service),
+        GetPayment: this.service.getPayment.bind(this.service),
+        GetDriverPayments: this.service.getDriverPayments.bind(this.service),
+        RefundPayment: this.service.refundPayment.bind(this.service),
+        GetDriverBalance: this.service.getDriverBalance.bind(this.service),
+        {{/if}}
+        {{#if (eq serviceName 'config')}}
+        GetConfig: this.service.getConfig.bind(this.service),
+        UpdateConfig: this.service.updateConfig.bind(this.service),
+        GetFeeConfig: this.service.getFeeConfig.bind(this.service),
+        UpdateFeeConfig: this.service.updateFeeConfig.bind(this.service),
+        GetSystemConfig: this.service.getSystemConfig.bind(this.service),
+        {{/if}}
+        HealthCheck: this.service.healthCheck.bind(this.service)
+      }
+    );
+
+    this.server.bindAsync(
+      \`0.0.0.0:\${this.port}\`,
+      grpc.ServerCredentials.createInsecure(),
+      (error, port) => {
+        if (error) {
+          console.error('Failed to start gRPC server:', error);
+          return;
+        }
+        console.log(\`{{serviceNamePascal}}Service gRPC server running on port \${port}\`);
+        this.server.start();
+      }
+    );
+  }
+
+  stop() {
+    this.server.forceShutdown();
+  }
+}
+
+module.exports = GrpcServer;

@@ -1,0 +1,1360 @@
+const grpc = require('@grpc/grpc-js');
+{{#if (eq serviceName 'auth')}}
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+{{/if}}
+{{#if (eq serviceName 'geo')}}
+const turf = require('@turf/turf');
+{{/if}}
+{{#if (eq serviceName 'payment')}}
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+{{/if}}
+
+class {{serviceNamePascal}}Service {
+  constructor() {
+    {{#if (eq serviceName 'auth')}}
+    this.users = new Map();
+    this.tokens = new Map();
+    this.initializeAdminUser();
+    {{/if}}
+    {{#if (eq serviceName 'user')}}
+    this.users = new Map();
+    this.initializeSampleData();
+    {{/if}}
+    {{#if (eq serviceName 'queue')}}
+    this.queues = {
+      primary: [],
+      secondary: [],
+      'primary-van': [],
+      'secondary-van': []
+    };
+    this.drivers = new Map();
+    this.priorityAccess = new Map();
+    {{/if}}
+    {{#if (eq serviceName 'geo')}}
+    this.geofences = new Map();
+    {{/if}}
+    {{#if (eq serviceName 'vehicle')}}
+    this.vehicles = new Map();
+    this.driverVehicles = new Map();
+    {{/if}}
+    {{#if (eq serviceName 'payment')}}
+    this.payments = new Map();
+    this.driverPayments = new Map();
+    this.commissionRate = 0.15;
+    {{/if}}
+    {{#if (eq serviceName 'config')}}
+    this.configs = new Map();
+    this.feeConfigs = new Map();
+    this.initializeDefaultConfigs();
+    {{/if}}
+  }
+
+  {{#if (eq serviceName 'auth')}}
+  async initializeAdminUser() {
+    const hashedPassword = await bcrypt.hash('admin123', 12);
+    this.users.set('admin@taxiqueue.com', {
+      id: 'admin_001',
+      email: 'admin@taxiqueue.com',
+      password: hashedPassword,
+      firstName: 'Super',
+      lastName: 'Admin',
+      phoneNumber: '+61000000000',
+      role: 'admin',
+      createdAt: new Date().toISOString()
+    });
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'user')}}
+  initializeSampleData() {
+    const sampleUsers = [
+      {
+        id: 'user_001',
+        email: 'admin@taxiqueue.com',
+        firstName: 'Super',
+        lastName: 'Admin',
+        phoneNumber: '+61000000000',
+        role: 'admin',
+        isActive: true,
+        customFields: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 'user_002',
+        email: 'driver@example.com',
+        firstName: 'John',
+        lastName: 'Driver',
+        phoneNumber: '+61412345678',
+        role: 'driver',
+        isActive: true,
+        customFields: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ];
+    sampleUsers.forEach(user => this.users.set(user.id, user));
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'config')}}
+  initializeDefaultConfigs() {
+    // System configurations
+    this.configs.set('system.name', { 
+      key: 'system.name', 
+      value: 'Taxi Queue System', 
+      updatedAt: new Date().toISOString() 
+    });
+    
+    this.configs.set('system.version', { 
+      key: 'system.version', 
+      value: '1.0.0', 
+      updatedAt: new Date().toISOString() 
+    });
+
+    // Fee configurations
+    const defaultFeeConfig = {
+      terminal: 'default',
+      vehicleType: 'default',
+      divisionType: 'percentage',
+      platformShare: 15,
+      airportShare: 85,
+      minFee: 5,
+      maxFee: 50,
+      updatedAt: new Date().toISOString()
+    };
+    
+    this.feeConfigs.set('default:default', defaultFeeConfig);
+  }
+  {{/if}}
+
+  healthCheck(call, callback) {
+    try {
+      const response = {
+        status: 'OK',
+        message: '{{serviceNamePascal}}Service is healthy',
+        timestamp: new Date().toISOString(),
+        {{#if (eq serviceName 'auth')}}userCount: this.users.size,{{/if}}
+        {{#if (eq serviceName 'user')}}userCount: this.users.size,{{/if}}
+        {{#if (eq serviceName 'queue')}}
+        primaryQueueCount: this.queues.primary.length,
+        secondaryQueueCount: this.queues.secondary.length,
+        priorityAccessCount: this.priorityAccess.size,
+        {{/if}}
+        {{#if (eq serviceName 'geo')}}geofenceCount: this.geofences.size,{{/if}}
+        {{#if (eq serviceName 'vehicle')}}
+        vehicleCount: this.vehicles.size,
+        driverCount: this.driverVehicles.size,
+        {{/if}}
+        {{#if (eq serviceName 'payment')}}
+        paymentCount: this.payments.size,
+        driverCount: this.driverPayments.size,
+        {{/if}}
+        {{#if (eq serviceName 'config')}}
+        configCount: this.configs.size,
+        feeConfigCount: this.feeConfigs.size,
+        {{/if}}
+      };
+      callback(null, response);
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  {{#if (eq serviceName 'auth')}}
+  // Auth Service Methods
+  async login(call, callback) {
+    try {
+      const { email, password } = call.request;
+      
+      const user = this.users.get(email);
+      if (!user) {
+        return callback(null, { 
+          success: false, 
+          message: 'Invalid credentials' 
+        });
+      }
+
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      if (!isValidPassword) {
+        return callback(null, { 
+          success: false, 
+          message: 'Invalid credentials' 
+        });
+      }
+
+      const token = this.generateToken(user);
+      const refreshToken = this.generateRefreshToken(user);
+
+      callback(null, { 
+        success: true, 
+        message: 'Login successful',
+        token,
+        refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          phoneNumber: user.phoneNumber,
+          role: user.role
+        }
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  async register(call, callback) {
+    try {
+      const { email, password, firstName, lastName, phoneNumber } = call.request;
+      
+      if (this.users.has(email)) {
+        return callback(null, { 
+          success: false, 
+          message: 'User already exists' 
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 12);
+      const userId = \`user_\${Date.now()}\`;
+
+      const user = {
+        id: userId,
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        phoneNumber,
+        role: 'driver',
+        createdAt: new Date().toISOString()
+      };
+
+      this.users.set(email, user);
+
+      callback(null, { 
+        success: true, 
+        message: 'Registration successful',
+        userId 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  verifyToken(call, callback) {
+    try {
+      const { token } = call.request;
+      
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        callback(null, { 
+          valid: true, 
+          userId: decoded.userId, 
+          email: decoded.email,
+          message: 'Token is valid'
+        });
+      } catch (error) {
+        callback(null, { 
+          valid: false, 
+          message: 'Invalid token' 
+        });
+      }
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  refreshToken(call, callback) {
+    try {
+      const { token } = call.request;
+      
+      // Verify refresh token and generate new access token
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        const user = Array.from(this.users.values()).find(u => u.id === decoded.userId);
+        
+        if (user) {
+          const newToken = this.generateToken(user);
+          callback(null, { 
+            valid: true, 
+            token: newToken,
+            message: 'Token refreshed successfully'
+          });
+        } else {
+          callback(null, { 
+            valid: false, 
+            message: 'User not found' 
+          });
+        }
+      } catch (error) {
+        callback(null, { 
+          valid: false, 
+          message: 'Invalid refresh token' 
+        });
+      }
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  generateToken(user) {
+    return jwt.sign(
+      { 
+        userId: user.id, 
+        email: user.email,
+        role: user.role 
+      },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '1h' }
+    );
+  }
+
+  generateRefreshToken(user) {
+    return jwt.sign(
+      { 
+        userId: user.id, 
+        email: user.email 
+      },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'user')}}
+  // User Service Methods
+  getUser(call, callback) {
+    try {
+      const { userId } = call.request;
+      
+      const user = this.users.get(userId);
+      if (!user) {
+        return callback(null, { 
+          success: false, 
+          message: 'User not found' 
+        });
+      }
+
+      callback(null, { 
+        success: true, 
+        message: 'User found',
+        user 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getUsers(call, callback) {
+    try {
+      const { page = 1, limit = 10, role, search } = call.request;
+      
+      let users = Array.from(this.users.values());
+      
+      // Filter by role if specified
+      if (role) {
+        users = users.filter(user => user.role === role);
+      }
+
+      // Filter by search term if specified
+      if (search) {
+        const searchTerm = search.toLowerCase();
+        users = users.filter(user => 
+          user.firstName.toLowerCase().includes(searchTerm) ||
+          user.lastName.toLowerCase().includes(searchTerm) ||
+          user.email.toLowerCase().includes(searchTerm)
+        );
+      }
+
+      // Pagination
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedUsers = users.slice(startIndex, endIndex);
+
+      callback(null, { 
+        success: true, 
+        users: paginatedUsers,
+        total: users.length,
+        page: parseInt(page),
+        limit: parseInt(limit)
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  updateUser(call, callback) {
+    try {
+      const { userId, firstName, lastName, phoneNumber, role, isActive, customFields } = call.request;
+      
+      const user = this.users.get(userId);
+      if (!user) {
+        return callback(null, { 
+          success: false, 
+          message: 'User not found' 
+        });
+      }
+
+      // Update fields if provided
+      if (firstName) user.firstName = firstName;
+      if (lastName) user.lastName = lastName;
+      if (phoneNumber) user.phoneNumber = phoneNumber;
+      if (role) user.role = role;
+      if (typeof isActive !== 'undefined') user.isActive = isActive;
+      if (customFields) user.customFields = { ...user.customFields, ...customFields };
+      
+      user.updatedAt = new Date().toISOString();
+      this.users.set(userId, user);
+
+      callback(null, { 
+        success: true, 
+        message: 'User updated successfully',
+        user 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  deleteUser(call, callback) {
+    try {
+      const { userId } = call.request;
+      
+      if (!this.users.has(userId)) {
+        return callback(null, { 
+          success: false, 
+          message: 'User not found' 
+        });
+      }
+
+      this.users.delete(userId);
+
+      callback(null, { 
+        success: true, 
+        message: 'User deleted successfully' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  createUser(call, callback) {
+    try {
+      const { email, password, firstName, lastName, phoneNumber, role, customFields } = call.request;
+      
+      if (this.users.has(email)) {
+        return callback(null, { 
+          success: false, 
+          message: 'User already exists' 
+        });
+      }
+
+      const userId = \`user_\${Date.now()}\`;
+      const user = {
+        id: userId,
+        email,
+        password: password || 'tempPassword123',
+        firstName,
+        lastName,
+        phoneNumber,
+        role: role || 'driver',
+        isActive: true,
+        customFields: customFields || {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      this.users.set(userId, user);
+
+      callback(null, { 
+        success: true, 
+        message: 'User created successfully',
+        user 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'queue')}}
+  // Queue Service Methods
+  addToQueue(call, callback) {
+    try {
+      const { driverId, vehicleType, queueType } = call.request;
+      
+      const validQueues = ['primary', 'secondary', 'primary-van', 'secondary-van'];
+      if (!validQueues.includes(queueType)) {
+        return callback(null, { 
+          success: false, 
+          message: 'Invalid queue type' 
+        });
+      }
+
+      // Remove driver from any existing queue first
+      this.removeDriverFromAllQueues(driverId);
+
+      // Add to appropriate queue
+      const targetQueue = vehicleType === 'van' ? \`\${queueType}-van\` : queueType;
+      const position = this.queues[targetQueue].length + 1;
+      
+      this.queues[targetQueue].push({
+        driverId,
+        vehicleType,
+        position,
+        joinedAt: new Date().toISOString()
+      });
+
+      // Store driver info
+      this.drivers.set(driverId, {
+        driverId,
+        vehicleType,
+        currentQueue: targetQueue,
+        position
+      });
+
+      callback(null, { 
+        success: true, 
+        message: 'Added to queue',
+        position,
+        queueType: targetQueue
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  removeFromQueue(call, callback) {
+    try {
+      const { driverId, queueType } = call.request;
+      
+      const driver = this.drivers.get(driverId);
+      if (!driver) {
+        return callback(null, { 
+          success: false, 
+          message: 'Driver not found in any queue' 
+        });
+      }
+
+      const targetQueue = queueType || driver.currentQueue;
+      this.queues[targetQueue] = this.queues[targetQueue].filter(
+        item => item.driverId !== driverId
+      );
+
+      // Recalculate positions
+      this.queues[targetQueue].forEach((item, index) => {
+        item.position = index + 1;
+      });
+
+      this.drivers.delete(driverId);
+
+      callback(null, { 
+        success: true, 
+        message: 'Removed from queue' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getQueueStatus(call, callback) {
+    try {
+      const { queueType, vehicleType } = call.request;
+      
+      let targetQueues = [];
+      if (queueType) {
+        targetQueues = [queueType];
+      } else {
+        targetQueues = Object.keys(this.queues);
+      }
+
+      let allDrivers = [];
+      targetQueues.forEach(q => {
+        const queueDrivers = this.queues[q].map(item => ({
+          id: item.driverId,
+          name: \`Driver \${item.driverId}\`,
+          vehicleType: item.vehicleType,
+          position: item.position,
+          queueType: q,
+          joinedAt: item.joinedAt
+        }));
+        allDrivers = [...allDrivers, ...queueDrivers];
+      });
+
+      // Filter by vehicle type if specified
+      if (vehicleType) {
+        allDrivers = allDrivers.filter(driver => driver.vehicleType === vehicleType);
+      }
+
+      callback(null, { 
+        success: true, 
+        count: allDrivers.length,
+        drivers: allDrivers,
+        queueType: queueType || 'all'
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getDriverPosition(call, callback) {
+    try {
+      const { driverId, queueType } = call.request;
+      
+      const driver = this.drivers.get(driverId);
+      if (!driver) {
+        return callback(null, { 
+          success: false, 
+          message: 'Driver not found in any queue' 
+        });
+      }
+
+      const targetQueue = queueType || driver.currentQueue;
+      const queueItem = this.queues[targetQueue].find(item => item.driverId === driverId);
+      
+      if (!queueItem) {
+        return callback(null, { 
+          success: false, 
+          message: 'Driver not found in specified queue' 
+        });
+      }
+
+      callback(null, { 
+        success: true, 
+        position: queueItem.position,
+        queueType: targetQueue,
+        message: \`Driver position: \${queueItem.position}\`
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  releaseDrivers(call, callback) {
+    try {
+      const { queueType, count, terminal, vehicleRequirements } = call.request;
+      
+      if (!this.queues[queueType]) {
+        return callback(null, { 
+          success: false, 
+          message: 'Invalid queue type' 
+        });
+      }
+
+      const driversToRelease = this.queues[queueType].slice(0, count);
+      const driverIds = driversToRelease.map(driver => driver.driverId);
+
+      // Remove from queue
+      this.queues[queueType] = this.queues[queueType].slice(count);
+
+      // Update driver records
+      driverIds.forEach(driverId => {
+        this.drivers.delete(driverId);
+      });
+
+      // Recalculate positions
+      this.queues[queueType].forEach((item, index) => {
+        item.position = index + 1;
+      });
+
+      callback(null, { 
+        success: true, 
+        message: \`Released \${driversToRelease.length} drivers to terminal \${terminal}\`,
+        releasedCount: driversToRelease.length,
+        driverIds
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  handleAirportClosure(call, callback) {
+    try {
+      const { reason, priorityExpiryHours } = call.request;
+      
+      // Move all secondary queue drivers to priority access
+      const secondaryDrivers = [
+        ...this.queues.secondary,
+        ...this.queues['secondary-van']
+      ];
+
+      const expiryTime = new Date();
+      expiryTime.setHours(expiryTime.getHours() + (priorityExpiryHours || 12));
+
+      secondaryDrivers.forEach(driver => {
+        this.priorityAccess.set(driver.driverId, {
+          driverId: driver.driverId,
+          originalPosition: driver.position,
+          expiry: expiryTime.toISOString()
+        });
+      });
+
+      // Clear secondary queues
+      this.queues.secondary = [];
+      this.queues['secondary-van'] = [];
+
+      callback(null, { 
+        success: true, 
+        message: \`Airport closure handled. \${secondaryDrivers.length} drivers given priority access.\`,
+        driversMoved: secondaryDrivers.length,
+        priorityExpiry: expiryTime.toISOString()
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  removeDriverFromAllQueues(driverId) {
+    Object.keys(this.queues).forEach(queueType => {
+      this.queues[queueType] = this.queues[queueType].filter(
+        item => item.driverId !== driverId
+      );
+    });
+    this.drivers.delete(driverId);
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'geo')}}
+  // Geo Service Methods
+  isPointInGeofence(call, callback) {
+    try {
+      const { latitude, longitude, geofenceId } = call.request;
+      const geofence = this.geofences.get(geofenceId);
+      
+      if (!geofence) {
+        return callback(null, { 
+          success: false, 
+          message: 'Geofence not found' 
+        });
+      }
+
+      const point = turf.point([longitude, latitude]);
+      const isInside = turf.booleanPointInPolygon(point, geofence.polygon);
+      
+      callback(null, { 
+        success: true, 
+        isInside, 
+        geofenceId 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  addGeofence(call, callback) {
+    try {
+      const { id, name, coordinates } = call.request;
+      const polygon = turf.polygon([coordinates]);
+      
+      this.geofences.set(id, {
+        id,
+        name,
+        polygon
+      });
+
+      callback(null, { 
+        success: true, 
+        message: 'Geofence added successfully' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  calculateDistance(call, callback) {
+    try {
+      const { fromLat, fromLng, toLat, toLng } = call.request;
+      const from = turf.point([fromLng, fromLat]);
+      const to = turf.point([toLng, toLat]);
+      
+      const distance = turf.distance(from, to, { units: 'kilometers' });
+      
+      callback(null, { 
+        success: true, 
+        distance: Math.round(distance * 100) / 100,
+        unit: 'kilometers' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'vehicle')}}
+  // Vehicle Service Methods
+  registerVehicle(call, callback) {
+    try {
+      const { driverId, registrationNumber, vehicleType, make, model, year, color } = call.request;
+      
+      const vehicleId = \`veh_\${Date.now()}\`;
+      const vehicle = {
+        id: vehicleId,
+        driverId,
+        registrationNumber,
+        vehicleType,
+        make,
+        model,
+        year: parseInt(year),
+        color,
+        isActive: false,
+        isApproved: false,
+        createdAt: new Date().toISOString()
+      };
+
+      this.vehicles.set(vehicleId, vehicle);
+      
+      // Track driver's vehicles
+      if (!this.driverVehicles.has(driverId)) {
+        this.driverVehicles.set(driverId, new Set());
+      }
+      this.driverVehicles.get(driverId).add(vehicleId);
+
+      callback(null, { 
+        success: true, 
+        message: 'Vehicle registered successfully',
+        vehicleId 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  setActiveVehicle(call, callback) {
+    try {
+      const { driverId, vehicleId } = call.request;
+      
+      const vehicle = this.vehicles.get(vehicleId);
+      if (!vehicle || vehicle.driverId !== driverId) {
+        return callback(null, { 
+          success: false, 
+          message: 'Vehicle not found or not owned by driver' 
+        });
+      }
+
+      // Deactivate all other vehicles for this driver
+      const driverVehicles = this.driverVehicles.get(driverId) || new Set();
+      for (const vid of driverVehicles) {
+        if (vid !== vehicleId) {
+          const v = this.vehicles.get(vid);
+          if (v) v.isActive = false;
+        }
+      }
+
+      vehicle.isActive = true;
+      this.vehicles.set(vehicleId, vehicle);
+
+      callback(null, { 
+        success: true, 
+        message: 'Vehicle set as active' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getDriverVehicles(call, callback) {
+    try {
+      const { driverId } = call.request;
+      const driverVehicles = this.driverVehicles.get(driverId) || new Set();
+      
+      const vehicles = Array.from(driverVehicles).map(vehicleId => {
+        const vehicle = this.vehicles.get(vehicleId);
+        return {
+          id: vehicle.id,
+          registrationNumber: vehicle.registrationNumber,
+          vehicleType: vehicle.vehicleType,
+          make: vehicle.make,
+          model: vehicle.model,
+          year: vehicle.year,
+          color: vehicle.color,
+          isActive: vehicle.isActive,
+          isApproved: vehicle.isApproved
+        };
+      });
+
+      callback(null, { 
+        success: true, 
+        vehicles 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  updateVehicle(call, callback) {
+    try {
+      const { vehicleId, registrationNumber, vehicleType, make, model, year, color, isApproved } = call.request;
+      
+      const vehicle = this.vehicles.get(vehicleId);
+      if (!vehicle) {
+        return callback(null, { 
+          success: false, 
+          message: 'Vehicle not found' 
+        });
+      }
+
+      if (registrationNumber) vehicle.registrationNumber = registrationNumber;
+      if (vehicleType) vehicle.vehicleType = vehicleType;
+      if (make) vehicle.make = make;
+      if (model) vehicle.model = model;
+      if (year) vehicle.year = parseInt(year);
+      if (color) vehicle.color = color;
+      if (typeof isApproved !== 'undefined') vehicle.isApproved = isApproved;
+
+      this.vehicles.set(vehicleId, vehicle);
+
+      callback(null, { 
+        success: true, 
+        message: 'Vehicle updated successfully',
+        vehicle 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  deleteVehicle(call, callback) {
+    try {
+      const { vehicleId } = call.request;
+      
+      const vehicle = this.vehicles.get(vehicleId);
+      if (!vehicle) {
+        return callback(null, { 
+          success: false, 
+          message: 'Vehicle not found' 
+        });
+      }
+
+      // Remove from driver's vehicles
+      const driverVehicles = this.driverVehicles.get(vehicle.driverId);
+      if (driverVehicles) {
+        driverVehicles.delete(vehicleId);
+      }
+
+      this.vehicles.delete(vehicleId);
+
+      callback(null, { 
+        success: true, 
+        message: 'Vehicle deleted successfully' 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'payment')}}
+  // Payment Service Methods
+  async processPayment(call, callback) {
+    try {
+      const { driverId, amount, terminal, description, vehicleType } = call.request;
+      
+      const paymentId = \`pay_\${Date.now()}\`;
+      const platformCommission = amount * this.commissionRate;
+      const airportPortion = amount - platformCommission;
+
+      // Simulate Stripe payment
+      const stripePayment = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100),
+        currency: 'aud',
+        metadata: {
+          driverId,
+          terminal,
+          vehicleType
+        }
+      });
+
+      const payment = {
+        id: paymentId,
+        driverId,
+        amount: parseFloat(amount),
+        platformCommission,
+        airportPortion,
+        terminal,
+        vehicleType,
+        status: 'completed',
+        description: description || 'Airport fee',
+        stripePaymentId: stripePayment.id,
+        divisionType: 'percentage',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      this.payments.set(paymentId, payment);
+
+      // Track driver payments
+      if (!this.driverPayments.has(driverId)) {
+        this.driverPayments.set(driverId, []);
+      }
+      this.driverPayments.get(driverId).push(paymentId);
+
+      callback(null, { 
+        success: true, 
+        message: 'Payment processed successfully',
+        payment 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getPayment(call, callback) {
+    try {
+      const { paymentId } = call.request;
+      
+      const payment = this.payments.get(paymentId);
+      if (!payment) {
+        return callback(null, { 
+          success: false, 
+          message: 'Payment not found' 
+        });
+      }
+
+      callback(null, { 
+        success: true, 
+        message: 'Payment found',
+        payment 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getDriverPayments(call, callback) {
+    try {
+      const { driverId, page = 1, limit = 10, status, startDate, endDate } = call.request;
+      
+      const paymentIds = this.driverPayments.get(driverId) || [];
+      let payments = paymentIds.map(id => this.payments.get(id)).filter(Boolean);
+
+      // Filter by status if specified
+      if (status) {
+        payments = payments.filter(payment => payment.status === status);
+      }
+
+      // Filter by date range if specified
+      if (startDate) {
+        const start = new Date(startDate);
+        payments = payments.filter(payment => new Date(payment.createdAt) >= start);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        payments = payments.filter(payment => new Date(payment.createdAt) <= end);
+      }
+
+      // Pagination
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedPayments = payments.slice(startIndex, endIndex);
+
+      callback(null, { 
+        success: true, 
+        payments: paginatedPayments,
+        total: payments.length,
+        page: parseInt(page),
+        limit: parseInt(limit)
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  refundPayment(call, callback) {
+    try {
+      const { paymentId, reason } = call.request;
+      
+      const payment = this.payments.get(paymentId);
+      if (!payment) {
+        return callback(null, { 
+          success: false, 
+          message: 'Payment not found' 
+        });
+      }
+
+      if (payment.status === 'refunded') {
+        return callback(null, { 
+          success: false, 
+          message: 'Payment already refunded' 
+        });
+      }
+
+      payment.status = 'refunded';
+      payment.refundReason = reason;
+      payment.updatedAt = new Date().toISOString();
+      this.payments.set(paymentId, payment);
+
+      callback(null, { 
+        success: true, 
+        message: 'Payment refunded successfully',
+        payment 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getDriverBalance(call, callback) {
+    try {
+      const { driverId } = call.request;
+      
+      const paymentIds = this.driverPayments.get(driverId) || [];
+      const payments = paymentIds.map(id => this.payments.get(id)).filter(Boolean);
+      
+      const totalPaid = payments
+        .filter(p => p.status === 'completed')
+        .reduce((sum, payment) => sum + payment.amount, 0);
+      
+      const totalRefunded = payments
+        .filter(p => p.status === 'refunded')
+        .reduce((sum, payment) => sum + payment.amount, 0);
+
+      const balance = totalPaid - totalRefunded;
+
+      callback(null, { 
+        success: true, 
+        message: 'Balance calculated',
+        balance: Math.round(balance * 100) / 100,
+        currency: 'AUD',
+        driverId 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+  {{/if}}
+
+  {{#if (eq serviceName 'config')}}
+  // Config Service Methods
+  getConfig(call, callback) {
+    try {
+      const { key } = call.request;
+      
+      const config = this.configs.get(key);
+      if (!config) {
+        return callback(null, { 
+          success: false, 
+          message: 'Config not found' 
+        });
+      }
+
+      callback(null, { 
+        success: true, 
+        message: 'Config found',
+        config 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  updateConfig(call, callback) {
+    try {
+      const { key, value } = call.request;
+      
+      const config = {
+        key,
+        value,
+        updatedAt: new Date().toISOString()
+      };
+
+      this.configs.set(key, config);
+
+      callback(null, { 
+        success: true, 
+        message: 'Config updated successfully',
+        config 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getFeeConfig(call, callback) {
+    try {
+      const { terminal, vehicleType } = call.request;
+      
+      const configKey = \`\${terminal || 'default'}:\${vehicleType || 'default'}\`;
+      let config = this.feeConfigs.get(configKey);
+
+      // Fallback to default config if specific config not found
+      if (!config) {
+        config = this.feeConfigs.get('default:default');
+      }
+
+      callback(null, { 
+        success: true, 
+        message: 'Fee config found',
+        config 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  updateFeeConfig(call, callback) {
+    try {
+      const { terminal, vehicleType, divisionType, platformShare, airportShare, minFee, maxFee, applicableTerminals, applicableVehicleTypes } = call.request;
+      
+      const configKey = \`\${terminal || 'default'}:\${vehicleType || 'default'}\`;
+      const config = {
+        terminal: terminal || 'default',
+        vehicleType: vehicleType || 'default',
+        divisionType,
+        platformShare,
+        airportShare,
+        minFee,
+        maxFee,
+        applicableTerminals: applicableTerminals || [],
+        applicableVehicleTypes: applicableVehicleTypes || [],
+        updatedAt: new Date().toISOString(),
+        isActive: true
+      };
+
+      this.feeConfigs.set(configKey, config);
+
+      callback(null, { 
+        success: true, 
+        message: 'Fee config updated successfully',
+        config 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+
+  getSystemConfig(call, callback) {
+    try {
+      const { section } = call.request;
+      
+      let configs = {};
+      if (section) {
+        // Return only configs for the specified section
+        Array.from(this.configs.entries()).forEach(([key, value]) => {
+          if (key.startsWith(\`\${section}.\`)) {
+            configs[key] = value.value;
+          }
+        });
+      } else {
+        // Return all configs
+        Array.from(this.configs.entries()).forEach(([key, value]) => {
+          configs[key] = value.value;
+        });
+      }
+
+      callback(null, { 
+        success: true, 
+        message: 'System config retrieved',
+        configs 
+      });
+    } catch (error) {
+      callback({
+        code: grpc.status.INTERNAL,
+        message: error.message
+      });
+    }
+  }
+  {{/if}}
+}
+
+module.exports = {{serviceNamePascal}}Service;
