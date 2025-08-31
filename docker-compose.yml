@@ -3,7 +3,25 @@ version: '3.8'
 networks:
   taxi-network:
     driver: bridge
-  gateway-network:
+  auth-network:
+    driver: bridge
+  user-network:
+    driver: bridge
+  queue-network:
+    driver: bridge
+  geo-network:
+    driver: bridge
+  vehicle-network:
+    driver: bridge
+  payment-network:
+    driver: bridge
+  config-network:
+    driver: bridge
+  redis-network:
+    driver: bridge
+  mongodb-network:
+    driver: bridge
+  postgres-network:
     driver: bridge
 
 volumes:
@@ -11,265 +29,157 @@ volumes:
   user-mongo-data:
   queue-mongo-data:
   geo-postgres-data:
-  payment-mongo-data:
   vehicle-mongo-data:
+  payment-mongo-data:
   config-mongo-data:
   redis-data:
 
 services:
-  # API Gateway instances (load balanced)
-  api-gateway-1:
-    build: ./api-gateway
-    ports:
-      - '3000'
-    environment:
-      - NODE_ENV=production
-      - AUTH_SERVICE_HOST=auth-service
-      - USER_SERVICE_HOST=user-service
-      - QUEUE_SERVICE_HOST=queue-service
-      - GEO_SERVICE_HOST=geo-service
-      - PAYMENT_SERVICE_HOST=payment-service
-      - VEHICLE_SERVICE_HOST=vehicle-service
-      - CONFIG_SERVICE_HOST=config-service
-    networks:
-      - taxi-network
-      - gateway-network
-    depends_on:
-      - auth-service
-      - user-service
-      - queue-service
-      - geo-service
-      - payment-service
-      - vehicle-service
-      - config-service
-
-  api-gateway-2:
-    build: ./api-gateway
-    environment:
-      - NODE_ENV=production
-      - AUTH_SERVICE_HOST=auth-service
-      - USER_SERVICE_HOST=user-service
-      - QUEUE_SERVICE_HOST=queue-service
-      - GEO_SERVICE_HOST=geo-service
-      - PAYMENT_SERVICE_HOST=payment-service
-      - VEHICLE_SERVICE_HOST=vehicle-service
-      - CONFIG_SERVICE_HOST=config-service
-    networks:
-      - taxi-network
-      - gateway-network
-
-  api-gateway-3:
-    build: ./api-gateway
-    environment:
-      - NODE_ENV=production
-      - AUTH_SERVICE_HOST=auth-service
-      - USER_SERVICE_HOST=user-service
-      - QUEUE_SERVICE_HOST=queue-service
-      - GEO_SERVICE_HOST=geo-service
-      - PAYMENT_SERVICE_HOST=payment-service
-      - VEHICLE_SERVICE_HOST=vehicle-service
-      - CONFIG_SERVICE_HOST=config-service
-    networks:
-      - taxi-network
-      - gateway-network
-
-  # Nginx Load Balancer
-  nginx:
-    image: nginx:alpine
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - gateway-network
-    depends_on:
-      - api-gateway-1
-      - api-gateway-2
-      - api-gateway-3
-
-  # Auth Service
-  auth-service:
-    build: ./auth-service
-    ports:
-      - '3001:3001'
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - MONGODB_URI=mongodb://auth-mongo:27017/authdb
-      - JWT_SECRET=your-jwt-secret-key
-    networks:
-      - taxi-network
-    depends_on:
-      - auth-mongo
-
-  auth-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - auth-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # User Service
-  user-service:
-    build: ./user-service
-    ports:
-      - '3002:3002'
-    environment:
-      - NODE_ENV=production
-      - PORT=3002
-      - MONGODB_URI=mongodb://user-mongo:27017/userdb
-    networks:
-      - taxi-network
-    depends_on:
-      - user-mongo
-
-  user-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - user-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # Queue Service
-  queue-service:
-    build: ./queue-service
-    ports:
-      - '3003:3003'
-    environment:
-      - NODE_ENV=production
-      - PORT=3003
-      - MONGODB_URI=mongodb://queue-mongo:27017/queuedb
-      - REDIS_URL=redis://redis:6379
-    networks:
-      - taxi-network
-    depends_on:
-      - queue-mongo
-      - redis
-
-  queue-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - queue-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # Geo Service
-  geo-service:
-    build: ./geo-service
-    ports:
-      - '3004:3004'
-    environment:
-      - NODE_ENV=production
-      - PORT=3004
-      - POSTGRES_URL=postgresql://geo-user:geo-pass@geo-postgres:5432/geodb
-    networks:
-      - taxi-network
-    depends_on:
-      - geo-postgres
-
-  geo-postgres:
-    image: postgis/postgis:13-3.1
-    ports:
-      - '5432'
-    environment:
-      - POSTGRES_DB=geodb
-      - POSTGRES_USER=geo-user
-      - POSTGRES_PASSWORD=geo-pass
-    volumes:
-      - geo-postgres-data:/var/lib/postgresql/data
-    networks:
-      - taxi-network
-
-  # Payment Service
-  payment-service:
-    build: ./payment-service
-    ports:
-      - '3005:3005'
-    environment:
-      - NODE_ENV=production
-      - PORT=3005
-      - MONGODB_URI=mongodb://payment-mongo:27017/paymentdb
-      - STRIPE_SECRET_KEY=sk_test_your-stripe-key
-    networks:
-      - taxi-network
-    depends_on:
-      - payment-mongo
-
-  payment-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - payment-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # Vehicle Service
-  vehicle-service:
-    build: ./vehicle-service
-    ports:
-      - '3006:3006'
-    environment:
-      - NODE_ENV=production
-      - PORT=3006
-      - MONGODB_URI=mongodb://vehicle-mongo:27017/vehicledb
-    networks:
-      - taxi-network
-    depends_on:
-      - vehicle-mongo
-
-  vehicle-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - vehicle-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # Config Service
-  config-service:
-    build: ./config-service
-    ports:
-      - '3007:3007'
-    environment:
-      - NODE_ENV=production
-      - PORT=3007
-      - MONGODB_URI=mongodb://config-mongo:27017/configdb
-    networks:
-      - taxi-network
-    depends_on:
-      - config-mongo
-
-  config-mongo:
-    image: mongo:5
-    ports:
-      - '27017'
-    volumes:
-      - config-mongo-data:/data/db
-    networks:
-      - taxi-network
-    command: mongod --quiet --logpath /dev/null
-
-  # Redis for caching and messaging
+  # Redis (Shared across all services)
   redis:
     image: redis:alpine
     ports:
       - '6379:6379'
     volumes:
       - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - redis-network
+      - auth-network
+      - user-network
+      - queue-network
+      - payment-network
+      - config-network
+
+  # Auth Service
+  auth-service:
+    build: ./auth-service
+    ports:
+      - '50051:50051'
+    environment:
+      - NODE_ENV=production
+      - PORT=50051
+      - MONGODB_URI=mongodb://auth-mongo:27017/authdb
+      - REDIS_URL=redis://redis:6379/0
     networks:
       - taxi-network
-    command: redis-server --appendonly yes
+      - auth-network
+      - redis-network
+      - mongodb-network
+    depends_on:
+      - auth-mongo
+      - redis
+
+  auth-mongo:
+    image: mongo:5
+    volumes:
+      - auth-mongo-data:/data/db
+    networks:
+      - auth-network
+      - mongodb-network
+    command: mongod --quiet --logpath /dev/null
+
+  # User Service
+  user-service:
+    build: ./user-service
+    ports:
+      - '50052:50052'
+    environment:
+      - NODE_ENV=production
+      - PORT=50052
+      - MONGODB_URI=mongodb://user-mongo:27017/userdb
+      - REDIS_URL=redis://redis:6379/1
+    networks:
+      - taxi-network
+      - user-network
+      - redis-network
+      - mongodb-network
+    depends_on:
+      - user-mongo
+      - redis
+
+  user-mongo:
+    image: mongo:5
+    volumes:
+      - user-mongo-data:/data/db
+    networks:
+      - user-network
+      - mongodb-network
+
+  # Payment Service
+  payment-service:
+    build: ./payment-service
+    ports:
+      - '50056:50056'
+    environment:
+      - NODE_ENV=production
+      - PORT=50056
+      - MONGODB_URI=mongodb://payment-mongo:27017/paymentdb
+      - REDIS_URL=redis://redis:6379/5
+      - STRIPE_SECRET_KEY=sk_test_your_stripe_key
+    networks:
+      - taxi-network
+      - payment-network
+      - redis-network
+      - mongodb-network
+    depends_on:
+      - payment-mongo
+      - redis
+
+  payment-mongo:
+    image: mongo:5
+    volumes:
+      - payment-mongo-data:/data/db
+    networks:
+      - payment-network
+      - mongodb-network
+
+  # Config Service
+  config-service:
+    build: ./config-service
+    ports:
+      - '50057:50057'
+    environment:
+      - NODE_ENV=production
+      - PORT=50057
+      - MONGODB_URI=mongodb://config-mongo:27017/configdb
+      - REDIS_URL=redis://redis:6379/6
+    networks:
+      - taxi-network
+      - config-network
+      - redis-network
+      - mongodb-network
+    depends_on:
+      - config-mongo
+      - redis
+
+  config-mongo:
+    image: mongo:5
+    volumes:
+      - config-mongo-data:/data/db
+    networks:
+      - config-network
+      - mongodb-network
+
+  # API Gateway (Access to all networks)
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - '3000:3000'
+    networks:
+      - taxi-network
+      - auth-network
+      - user-network
+      - queue-network
+      - geo-network
+      - vehicle-network
+      - payment-network
+      - config-network
+    depends_on:
+      - auth-service
+      - user-service
+      - queue-service
+      - geo-service
+      - vehicle-service
+      - payment-service
+      - config-service
