@@ -2,6 +2,7 @@ const BaseGenerator = require('./baseGenerator');
 const path = require('path');
 const fs = require('fs-extra');
 const { compileTemplate } = require('../utils/templateUtils');
+const FileUtils = require('../utils/fileUtils');
 
 class GeoGenerator extends BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -41,101 +42,13 @@ class GeoGenerator extends BaseGenerator {
   }
 
   async createServiceFile() {
-    const serviceContent = `const grpc = require('@grpc/grpc-js');
-const turf = require('@turf/turf');
-
-class GeoService {
-  constructor() {
-    this.geofences = new Map();
-  }
-
-  // Check if point is inside geofence
-  isPointInGeofence(call, callback) {
-    try {
-      const { latitude, longitude, geofenceId } = call.request;
-      const geofence = this.geofences.get(geofenceId);
-      
-      if (!geofence) {
-        return callback(null, { success: false, message: 'Geofence not found' });
-      }
-
-      const point = turf.point([longitude, latitude]);
-      const isInside = turf.booleanPointInPolygon(point, geofence.polygon);
-      
-      callback(null, { 
-        success: true, 
-        isInside, 
-        geofenceId 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Add geofence
-  addGeofence(call, callback) {
-    try {
-      const { id, name, coordinates } = call.request;
-      const polygon = turf.polygon([coordinates]);
-      
-      this.geofences.set(id, {
-        id,
-        name,
-        polygon
-      });
-
-      callback(null, { 
-        success: true, 
-        message: 'Geofence added successfully' 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Calculate distance between points
-  calculateDistance(call, callback) {
-    try {
-      const { fromLat, fromLng, toLat, toLng } = call.request;
-      const from = turf.point([fromLng, fromLat]);
-      const to = turf.point([toLng, toLat]);
-      
-      const distance = turf.distance(from, to, { units: 'kilometers' });
-      
-      callback(null, { 
-        success: true, 
-        distance: Math.round(distance * 100) / 100, // Round to 2 decimal places
-        unit: 'kilometers' 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Health check
-  healthCheck(call, callback) {
-    callback(null, {
-      status: 'OK',
-      message: 'Geo service is healthy',
-      timestamp: new Date().toISOString(),
-      geofenceCount: this.geofences.size
+    const serviceContent = await compileTemplate('service/service.js.hbs', {
+      serviceName: this.serviceKey,
+      serviceNamePascal: this.serviceNamePascal,
+      serviceNameUpperCase: this.serviceNameUpperCase,
     });
-  }
-}
 
-module.exports = GeoService;
-`;
-
-    await fs.writeFile(
+    await FileUtils.createFile(
       path.join(this.servicePath, `src/services/${this.serviceKey}Service.js`),
       serviceContent
     );

@@ -1,6 +1,8 @@
 const BaseGenerator = require('./baseGenerator');
 const path = require('path');
 const fs = require('fs-extra');
+const { compileTemplate } = require('../utils/templateUtils');
+const FileUtils = require('../utils/fileUtils');
 
 class PaymentGenerator extends BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -94,166 +96,16 @@ message Payment {
   }
 
   async createServiceFile() {
-    const serviceContent = `const grpc = require('@grpc/grpc-js');
-
-class PaymentService {
-  constructor() {
-    this.payments = new Map();
-    this.driverPayments = new Map();
-    this.commissionRate = 0.15; // 15% commission
-  }
-
-  processPayment(call, callback) {
-    try {
-      const { driverId, amount, terminal, description } = call.request;
-      
-      const paymentId = \`pay_\${Date.now()}\`;
-      const platformCommission = amount * this.commissionRate;
-      const airportPortion = amount - platformCommission;
-
-      const payment = {
-        id: paymentId,
-        driverId,
-        amount: parseFloat(amount),
-        platformCommission,
-        airportPortion,
-        terminal,
-        status: 'completed',
-        description: description || 'Airport fee',
-        stripePaymentId: \`stripe_\${Date.now()}\`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      this.payments.set(paymentId, payment);
-
-      // Track driver payments
-      if (!this.driverPayments.has(driverId)) {
-        this.driverPayments.set(driverId, []);
-      }
-      this.driverPayments.get(driverId).push(paymentId);
-
-      callback(null, { 
-        success: true, 
-        message: 'Payment processed successfully',
-        payment 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  getPayment(call, callback) {
-    try {
-      const { paymentId } = call.request;
-      
-      const payment = this.payments.get(paymentId);
-      if (!payment) {
-        return callback(null, { 
-          success: false, 
-          message: 'Payment not found' 
-        });
-      }
-
-      callback(null, { 
-        success: true, 
-        message: 'Payment found',
-        payment 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  getDriverPayments(call, callback) {
-    try {
-      const { driverId, page = 1, limit = 10 } = call.request;
-      
-      const paymentIds = this.driverPayments.get(driverId) || [];
-      const payments = paymentIds.map(id => this.payments.get(id)).filter(Boolean);
-
-      // Pagination
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + limit;
-      const paginatedPayments = payments.slice(startIndex, endIndex);
-
-      callback(null, { 
-        success: true, 
-        payments: paginatedPayments,
-        total: payments.length,
-        page: parseInt(page),
-        limit: parseInt(limit)
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  refundPayment(call, callback) {
-    try {
-      const { paymentId, reason } = call.request;
-      
-      const payment = this.payments.get(paymentId);
-      if (!payment) {
-        return callback(null, { 
-          success: false, 
-          message: 'Payment not found' 
-        });
-      }
-
-      if (payment.status === 'refunded') {
-        return callback(null, { 
-          success: false, 
-          message: 'Payment already refunded' 
-        });
-      }
-
-      payment.status = 'refunded';
-      payment.refundReason = reason;
-      payment.updatedAt = new Date().toISOString();
-      this.payments.set(paymentId, payment);
-
-      callback(null, { 
-        success: true, 
-        message: 'Payment refunded successfully',
-        payment 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  healthCheck(call, callback) {
-    callback(null, {
-      status: 'OK',
-      message: 'Payment service is healthy',
-      timestamp: new Date().toISOString(),
-      paymentCount: this.payments.size,
-      driverCount: this.driverPayments.size
+    const serviceContent = await compileTemplate('service/service.js.hbs', {
+      serviceName: this.serviceKey,
+      serviceNamePascal: this.serviceNamePascal,
+      serviceNameUpperCase: this.serviceNameUpperCase,
     });
-  }
-}
 
-module.exports = PaymentService;
-`;
-
-    await fs.writeFile(
-      path.join(this.servicePath, 'src/services/paymentService.js'),
+    await FileUtils.createFile(
+      path.join(this.servicePath, `src/services/${this.serviceKey}Service.js`),
       serviceContent
     );
   }
 }
-
 module.exports = PaymentGenerator;

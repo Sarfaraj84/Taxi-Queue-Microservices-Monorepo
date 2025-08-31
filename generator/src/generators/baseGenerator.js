@@ -2,7 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const chalk = require('chalk');
 const { compileTemplate } = require('../utils/templateUtils');
-const { ensureDirectories } = require('../utils/fileUtils');
+const FileUtils = require('../utils/fileUtils');
 
 class BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -37,20 +37,16 @@ class BaseGenerator {
   }
 
   async createPackageJson() {
-    const packageJson = {
-      name: this.serviceName,
-      version: '1.0.0',
-      description: `${this.serviceName} gRPC microservice`,
-      main: 'src/server.js',
-      scripts: this.getScripts(),
-      dependencies: this.getDependencies(),
-      devDependencies: this.getDevDependencies(),
-    };
+    const packageJsonContent = await compileTemplate('package.json.hbs', {
+      serviceName: this.serviceName,
+      serviceKey: this.serviceKey,
+      port: this.port,
+      dbType: this.dbType,
+    });
 
-    await fs.writeJson(
+    await FileUtils.writeJsonFile(
       path.join(this.servicePath, 'package.json'),
-      packageJson,
-      { spaces: 2 }
+      JSON.parse(packageJsonContent)
     );
   }
 
@@ -113,7 +109,7 @@ class BaseGenerator {
       'tests',
     ];
 
-    await ensureDirectories(this.servicePath, directories);
+    await FileUtils.ensureDirectories(this.servicePath, directories);
   }
 
   async createEnvFile() {
@@ -161,28 +157,27 @@ logs/
   }
 
   async createDockerfile() {
-    const dockerfileContent = `FROM node:24-alpine
+    const dockerfileContent = await compileTemplate('dockerfile.hbs', {
+      serviceName: this.serviceName,
+      port: this.port,
+    });
 
-WORKDIR /app
-
-RUN apk add --no-cache python3 make g++ && \\
-    npm install -g grpc-tools
-
-COPY package*.json ./
-RUN npm install --only=production
-
-COPY src/ ./src/
-COPY .env ./
-
-RUN npm run compile-proto
-
-EXPOSE ${this.port}
-
-CMD ["npm", "start"]
-`;
-    await fs.writeFile(
+    await FileUtils.createFile(
       path.join(this.servicePath, 'Dockerfile'),
       dockerfileContent
+    );
+  }
+
+  async createAppFile() {
+    const appContent = await compileTemplate('app.js.hbs', {
+      serviceName: this.serviceName,
+      serviceKey: this.serviceKey,
+      port: this.port,
+    });
+
+    await FileUtils.createFile(
+      path.join(this.servicePath, 'src/app.js'),
+      appContent
     );
   }
 

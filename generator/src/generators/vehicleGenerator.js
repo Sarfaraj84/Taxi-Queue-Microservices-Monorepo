@@ -2,6 +2,7 @@ const BaseGenerator = require('./baseGenerator');
 const path = require('path');
 const fs = require('fs-extra');
 const { compileTemplate } = require('../utils/templateUtils');
+const FileUtils = require('../utils/fileUtils');
 
 class VehicleGenerator extends BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -41,141 +42,13 @@ class VehicleGenerator extends BaseGenerator {
   }
 
   async createServiceFile() {
-    const serviceContent = `const grpc = require('@grpc/grpc-js');
-
-class VehicleService {
-  constructor() {
-    this.vehicles = new Map();
-    this.driverVehicles = new Map();
-  }
-
-  // Register a new vehicle
-  registerVehicle(call, callback) {
-    try {
-      const { driverId, registrationNumber, vehicleType, make, model, year, color } = call.request;
-      
-      const vehicleId = \`veh_\${Date.now()}\`;
-      const vehicle = {
-        id: vehicleId,
-        driverId,
-        registrationNumber,
-        vehicleType,
-        make,
-        model,
-        year: parseInt(year),
-        color,
-        isActive: false,
-        isApproved: false,
-        createdAt: new Date().toISOString()
-      };
-
-      this.vehicles.set(vehicleId, vehicle);
-      
-      // Track driver's vehicles
-      if (!this.driverVehicles.has(driverId)) {
-        this.driverVehicles.set(driverId, new Set());
-      }
-      this.driverVehicles.get(driverId).add(vehicleId);
-
-      callback(null, { 
-        success: true, 
-        message: 'Vehicle registered successfully',
-        vehicleId 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Set active vehicle for driver
-  setActiveVehicle(call, callback) {
-    try {
-      const { driverId, vehicleId } = call.request;
-      
-      const vehicle = this.vehicles.get(vehicleId);
-      if (!vehicle || vehicle.driverId !== driverId) {
-        return callback(null, { 
-          success: false, 
-          message: 'Vehicle not found or not owned by driver' 
-        });
-      }
-
-      // Deactivate all other vehicles for this driver
-      const driverVehicles = this.driverVehicles.get(driverId) || new Set();
-      for (const vid of driverVehicles) {
-        if (vid !== vehicleId) {
-          const v = this.vehicles.get(vid);
-          if (v) v.isActive = false;
-        }
-      }
-
-      vehicle.isActive = true;
-      this.vehicles.set(vehicleId, vehicle);
-
-      callback(null, { 
-        success: true, 
-        message: 'Vehicle set as active' 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Get driver's vehicles
-  getDriverVehicles(call, callback) {
-    try {
-      const { driverId } = call.request;
-      const driverVehicles = this.driverVehicles.get(driverId) || new Set();
-      
-      const vehicles = Array.from(driverVehicles).map(vehicleId => {
-        const vehicle = this.vehicles.get(vehicleId);
-        return {
-          id: vehicle.id,
-          registrationNumber: vehicle.registrationNumber,
-          vehicleType: vehicle.vehicleType,
-          make: vehicle.make,
-          model: vehicle.model,
-          year: vehicle.year,
-          color: vehicle.color,
-          isActive: vehicle.isActive,
-          isApproved: vehicle.isApproved
-        };
-      });
-
-      callback(null, { 
-        success: true, 
-        vehicles 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  // Health check
-  healthCheck(call, callback) {
-    callback(null, {
-      status: 'OK',
-      message: 'Vehicle service is healthy',
-      timestamp: new Date().toISOString(),
-      vehicleCount: this.vehicles.size,
-      driverCount: this.driverVehicles.size
+    const serviceContent = await compileTemplate('service/service.js.hbs', {
+      serviceName: this.serviceKey,
+      serviceNamePascal: this.serviceNamePascal,
+      serviceNameUpperCase: this.serviceNameUpperCase,
     });
-  }
-}
 
-module.exports = VehicleService;
-`;
-
-    await fs.writeFile(
+    await FileUtils.createFile(
       path.join(this.servicePath, `src/services/${this.serviceKey}Service.js`),
       serviceContent
     );

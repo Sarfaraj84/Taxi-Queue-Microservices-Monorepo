@@ -1,6 +1,8 @@
 const BaseGenerator = require('./baseGenerator');
 const path = require('path');
 const fs = require('fs-extra');
+const { compileTemplate } = require('../utils/templateUtils');
+const FileUtils = require('../utils/fileUtils');
 
 class UserGenerator extends BaseGenerator {
   constructor(serviceName, port, dbType) {
@@ -96,180 +98,14 @@ message User {
   }
 
   async createServiceFile() {
-    const serviceContent = `const grpc = require('@grpc/grpc-js');
-
-class UserService {
-  constructor() {
-    this.users = new Map();
-    this.initializeSampleData();
-  }
-
-  initializeSampleData() {
-    // Sample users for testing
-    const sampleUsers = [
-      {
-        id: 'user_001',
-        email: 'admin@taxiqueue.com',
-        firstName: 'Super',
-        lastName: 'Admin',
-        phoneNumber: '+61000000000',
-        role: 'admin',
-        isActive: true,
-        customFields: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      },
-      {
-        id: 'user_002',
-        email: 'driver1@example.com',
-        firstName: 'John',
-        lastName: 'Driver',
-        phoneNumber: '+61412345678',
-        role: 'driver',
-        isActive: true,
-        customFields: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    ];
-
-    sampleUsers.forEach(user => {
-      this.users.set(user.id, user);
+    const serviceContent = await compileTemplate('service/service.js.hbs', {
+      serviceName: this.serviceKey,
+      serviceNamePascal: this.serviceNamePascal,
+      serviceNameUpperCase: this.serviceNameUpperCase,
     });
-  }
 
-  getUser(call, callback) {
-    try {
-      const { userId } = call.request;
-      
-      const user = this.users.get(userId);
-      if (!user) {
-        return callback(null, { 
-          success: false, 
-          message: 'User not found' 
-        });
-      }
-
-      callback(null, { 
-        success: true, 
-        message: 'User found',
-        user 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  getUsers(call, callback) {
-    try {
-      const { page = 1, limit = 10, role } = call.request;
-      
-      let users = Array.from(this.users.values());
-      
-      // Filter by role if specified
-      if (role) {
-        users = users.filter(user => user.role === role);
-      }
-
-      // Pagination
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + limit;
-      const paginatedUsers = users.slice(startIndex, endIndex);
-
-      callback(null, { 
-        success: true, 
-        users: paginatedUsers,
-        total: users.length,
-        page: parseInt(page),
-        limit: parseInt(limit)
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  updateUser(call, callback) {
-    try {
-      const { userId, firstName, lastName, phoneNumber, role, isActive, customFields } = call.request;
-      
-      const user = this.users.get(userId);
-      if (!user) {
-        return callback(null, { 
-          success: false, 
-          message: 'User not found' 
-        });
-      }
-
-      // Update fields if provided
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
-      if (phoneNumber) user.phoneNumber = phoneNumber;
-      if (role) user.role = role;
-      if (typeof isActive !== 'undefined') user.isActive = isActive;
-      if (customFields) user.customFields = { ...user.customFields, ...customFields };
-      
-      user.updatedAt = new Date().toISOString();
-      this.users.set(userId, user);
-
-      callback(null, { 
-        success: true, 
-        message: 'User updated successfully',
-        user 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  deleteUser(call, callback) {
-    try {
-      const { userId } = call.request;
-      
-      if (!this.users.has(userId)) {
-        return callback(null, { 
-          success: false, 
-          message: 'User not found' 
-        });
-      }
-
-      this.users.delete(userId);
-
-      callback(null, { 
-        success: true, 
-        message: 'User deleted successfully' 
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        message: error.message
-      });
-    }
-  }
-
-  healthCheck(call, callback) {
-    callback(null, {
-      status: 'OK',
-      message: 'User service is healthy',
-      timestamp: new Date().toISOString(),
-      userCount: this.users.size
-    });
-  }
-}
-
-module.exports = UserService;
-`;
-
-    await fs.writeFile(
-      path.join(this.servicePath, 'src/services/userService.js'),
+    await FileUtils.createFile(
+      path.join(this.servicePath, `src/services/${this.serviceKey}Service.js`),
       serviceContent
     );
   }
