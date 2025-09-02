@@ -1,0 +1,45 @@
+const mongoose = require('mongoose');
+
+const queueSchema = new mongoose.Schema(
+  {
+    driverId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    vehicleType: {
+      type: String,
+      enum: ['sedan', '7-seater', 'station-wagon', 'van'],
+      required: true,
+    },
+    queueType: {
+      type: String,
+      enum: ['primary', 'secondary', 'primary-van', 'secondary-van'],
+      required: true,
+    },
+    position: {
+      type: Number,
+      required: true,
+    },
+    hasPriority: {
+      type: Boolean,
+      default: false,
+    },
+    priorityExpiry: {
+      type: Date,
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+queueSchema.index({ driverId: 1 });
+queueSchema.index({ queueType: 1, position: 1 });
+queueSchema.index({ queueType: 1, vehicleType: 1 });
+
+module.exports = mongoose.model('Queue', queueSchema);
