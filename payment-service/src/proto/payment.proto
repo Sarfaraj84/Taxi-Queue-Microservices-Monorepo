@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package payment;
+
+service PaymentService {
+  rpc HealthCheck (HealthRequest) returns (HealthResponse) {};
+  rpc ProcessPayment (PaymentRequest) returns (PaymentResponse) {};
+  rpc GetPayment (PaymentQuery) returns (PaymentResponse) {};
+  rpc GetDriverPayments (DriverPaymentsQuery) returns (PaymentsResponse) {};
+  rpc RefundPayment (RefundRequest) returns (PaymentResponse) {};
+  rpc GetDriverBalance (DriverBalanceRequest) returns (BalanceResponse) {};
+}
+
+message HealthRequest {
+  string service = 1;
+}
+
+message HealthResponse {
+  string status = 1;
+  string message = 2;
+  string timestamp = 3;
+  int32 paymentCount = 4;
+  int32 driverCount = 5;
+}
+
+message PaymentRequest {
+  string driverId = 1;
+  double amount = 2;
+  string terminal = 3;
+  string description = 4;
+  string vehicleType = 5;
+}
+
+message PaymentQuery {
+  string paymentId = 1;
+}
+
+message DriverPaymentsQuery {
+  string driverId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string status = 4;
+  string startDate = 5;
+  string endDate = 6;
+}
+
+message RefundRequest {
+  string paymentId = 1;
+  string reason = 2;
+}
+
+message DriverBalanceRequest {
+  string driverId = 1;
+}
+
+message PaymentResponse {
+  bool success = 1;
+  string message = 2;
+  Payment payment = 3;
+}
+
+message PaymentsResponse {
+  bool success = 1;
+  repeated Payment payments = 2;
+  int32 total = 3;
+  int32 page = 4;
+  int32 limit = 5;
+}
+
+message BalanceResponse {
+  bool success = 1;
+  string message = 2;
+  double balance = 3;
+  string currency = 4;
+  string driverId = 5;
+}
+
+message Payment {
+  string id = 1;
+  string driverId = 2;
+  double amount = 3;
+  double platformCommission = 4;
+  double airportPortion = 5;
+  string terminal = 6;
+  string vehicleType = 7;
+  string status = 8;
+  string description = 9;
+  string stripePaymentId = 10;
+  string divisionType = 11;
+  string createdAt = 12;
+  string updatedAt = 13;
+}
