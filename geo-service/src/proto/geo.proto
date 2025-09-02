@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package geo;
+
+service Service {
+  rpc HealthCheck (HealthRequest) returns (HealthResponse) {};
+  rpc IsPointInGeofence (PointRequest) returns (GeofenceResponse) {};
+  rpc AddGeofence (GeofenceRequest) returns (GeofenceResponse) {};
+  rpc CalculateDistance (DistanceRequest) returns (DistanceResponse) {};
+}
+
+message HealthRequest {
+  string service = 1;
+}
+
+message HealthResponse {
+  string status = 1;
+  string message = 2;
+  string timestamp = 3;
+  int32 geofenceCount = 4;
+}
+
+message PointRequest {
+  double latitude = 1;
+  double longitude = 2;
+  string geofenceId = 3;
+}
+
+message GeofenceRequest {
+  string id = 1;
+  string name = 2;
+  repeated Coordinate coordinates = 3;
+}
+
+message Coordinate {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+message GeofenceResponse {
+  bool success = 1;
+  string message = 2;
+  bool isInside = 3;
+  string geofenceId = 4;
+}
+
+message DistanceRequest {
+  double fromLat = 1;
+  double fromLng = 2;
+  double toLat = 3;
+  double toLng = 4;
+}
+
+message DistanceResponse {
+  bool success = 1;
+  double distance = 2;
+  string unit = 3;
+}
