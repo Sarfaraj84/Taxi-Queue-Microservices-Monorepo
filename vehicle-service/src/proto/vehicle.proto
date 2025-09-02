@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package vehicle;
+
+service Service {
+  rpc HealthCheck (HealthRequest) returns (HealthResponse) {};
+  rpc RegisterVehicle (VehicleRequest) returns (VehicleResponse) {};
+  rpc SetActiveVehicle (ActiveVehicleRequest) returns (VehicleResponse) {};
+  rpc GetDriverVehicles (DriverRequest) returns (DriverVehiclesResponse) {};
+}
+
+message HealthRequest {
+  string service = 1;
+}
+
+message HealthResponse {
+  string status = 1;
+  string message = 2;
+  string timestamp = 3;
+  int32 vehicleCount = 4;
+  int32 driverCount = 5;
+}
+
+message VehicleRequest {
+  string driverId = 1;
+  string registrationNumber = 2;
+  string vehicleType = 3;
+  string make = 4;
+  string model = 5;
+  int32 year = 6;
+  string color = 7;
+}
+
+message VehicleResponse {
+  bool success = 1;
+  string message = 2;
+  string vehicleId = 3;
+}
+
+message ActiveVehicleRequest {
+  string driverId = 1;
+  string vehicleId = 2;
+}
+
+message DriverRequest {
+  string driverId = 1;
+}
+
+message DriverVehiclesResponse {
+  bool success = 1;
+  repeated Vehicle vehicles = 2;
+}
+
+message Vehicle {
+  string id = 1;
+  string registrationNumber = 2;
+  string vehicleType = 3;
+  string make = 4;
+  string model = 5;
+  int32 year = 6;
+  string color = 7;
+  bool isActive = 8;
+  bool isApproved = 9;
+}
