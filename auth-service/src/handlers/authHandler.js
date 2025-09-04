@@ -1,4 +1,4 @@
-// handlers/authHandler.js
+// auth-service/handlers/authHandler.js
 const grpc = require('@grpc/grpc-js');
 const { User, Session, AuthToken } = require('../models');
 const {
@@ -11,6 +11,63 @@ const {
 } = require('../utils/jwtUtils');
 const { logger } = require('../middleware/grpcMiddleware');
 const redisClient = require('../utils/redisClient');
+
+// Generic cache function with fallback
+async function getWithCache(key, fallbackFunction, ttl = 3600) {
+  try {
+    // Try to get from Redis first
+    const cached = await redisClient.get(key);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    // If not in cache, execute fallback function
+    const result = await fallbackFunction();
+
+    // Store in Redis if available
+    if (result && redisClient.isConnected) {
+      await redisClient.set(key, JSON.stringify(result), { EX: ttl });
+    }
+
+    return result;
+  } catch (error) {
+    logger.warn('Cache operation failed, using fallback', {
+      key,
+      error: error.message,
+    });
+
+    // Fallback to direct function call
+    return await fallbackFunction();
+  }
+}
+
+// Cache set function with fallback
+async function setWithCache(key, value, ttl = 3600) {
+  try {
+    if (redisClient.isConnected) {
+      await redisClient.set(key, JSON.stringify(value), { EX: ttl });
+    }
+  } catch (error) {
+    logger.warn('Cache set operation failed', {
+      key,
+      error: error.message,
+    });
+  }
+}
+
+// Cache delete function with fallback
+async function deleteFromCache(key) {
+  try {
+    if (redisClient.isConnected) {
+      await redisClient.del(key);
+    }
+  } catch (error) {
+    logger.warn('Cache delete operation failed', {
+      key,
+      error: error.message,
+    });
+  }
+}
 
 const authHandler = {
   // User registration
@@ -51,8 +108,8 @@ const authHandler = {
       await user.save();
 
       // Invalidate any cached user lists
-      await redisClient.del('users:all');
-      await redisClient.del(`users:role:${role}`);
+      await deleteFromCache('users:all');
+      await deleteFromCache(`users:role:${role}`);
 
       callback(null, {
         user_id: user.userId,
@@ -153,10 +210,9 @@ const authHandler = {
 
       // Cache user profile for faster future access
       const userCacheKey = `user:${user.userId}:profile`;
-      await redisClient.setex(
+      await setWithCache(
         userCacheKey,
-        3600,
-        JSON.stringify({
+        {
           user_id: user.userId,
           email: user.email,
           role: user.role,
@@ -165,7 +221,8 @@ const authHandler = {
           phone_number: user.phoneNumber,
           is_active: user.isActive,
           is_verified: user.isVerified,
-        })
+        },
+        3600
       );
 
       callback(null, {
@@ -198,48 +255,40 @@ const authHandler = {
     try {
       const { token } = call.request;
 
-      // Check Redis cache first for token validation
       const tokenCacheKey = `token:${token}:valid`;
-      const cachedValidation = await redisClient.get(tokenCacheKey);
 
-      if (cachedValidation) {
-        const validation = JSON.parse(cachedValidation);
-        return callback(null, {
-          valid: validation.valid,
-          user_id: validation.user_id,
-          role: validation.role,
-          expires_at: validation.expires_at,
-        });
-      }
+      const result = await getWithCache(
+        tokenCacheKey,
+        async () => {
+          const decoded = verifyToken(token);
 
-      const decoded = verifyToken(token);
+          // Check if token is revoked in database
+          const tokenRecord = await AuthToken.findOne({
+            token,
+            type: 'access',
+            isRevoked: false,
+          });
 
-      // Check if token is revoked in database
-      const tokenRecord = await AuthToken.findOne({
-        token,
-        type: 'access',
-        isRevoked: false,
-      });
-      if (!tokenRecord) {
-        return callback(null, {
-          valid: false,
-          user_id: '',
-          role: '',
-          expires_at: 0,
-        });
-      }
+          if (!tokenRecord) {
+            return {
+              valid: false,
+              user_id: '',
+              role: '',
+              expires_at: 0,
+            };
+          }
 
-      const response = {
-        valid: true,
-        user_id: decoded.userId,
-        role: decoded.role,
-        expires_at: decoded.exp * 1000, // Convert to milliseconds
-      };
+          return {
+            valid: true,
+            user_id: decoded.userId,
+            role: decoded.role,
+            expires_at: decoded.exp * 1000, // Convert to milliseconds
+          };
+        },
+        300 // 5 minutes cache
+      );
 
-      // Cache token validation for 5 minutes
-      await redisClient.setex(tokenCacheKey, 300, JSON.stringify(response));
-
-      callback(null, response);
+      callback(null, result);
     } catch (error) {
       callback(null, {
         valid: false,
@@ -315,6 +364,10 @@ const authHandler = {
       // Revoke old refresh token
       await revokeToken(tokenRecord.tokenId);
 
+      // Invalidate cached tokens
+      await deleteFromCache(`token:${refresh_token}:valid`);
+      await deleteFromCache(`user:${user.userId}:tokens`);
+
       callback(null, {
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
@@ -355,8 +408,9 @@ const authHandler = {
       }
 
       // Clear user cache
-      await redisClient.del(`user:${user_id}:profile`);
-      await redisClient.delPattern(`tokens:user:${user_id}:*`);
+      await deleteFromCache(`user:${user_id}:profile`);
+      await deleteFromCache(`user:${user_id}:sessions`);
+      await deleteFromCache(`user:${user_id}:tokens`);
 
       callback(null, {
         success: true,
@@ -375,42 +429,31 @@ const authHandler = {
   GetUserProfile: async (call, callback) => {
     try {
       const { user_id } = call.request;
-
-      // Check Redis cache first
       const userCacheKey = `user:${user_id}:profile`;
-      const cachedUser = await redisClient.get(userCacheKey);
 
-      if (cachedUser) {
-        return callback(null, {
-          user: JSON.parse(cachedUser),
-        });
-      }
+      const userProfile = await getWithCache(
+        userCacheKey,
+        async () => {
+          const user = await User.findByUserId(user_id);
+          if (!user) throw new Error('User not found');
 
-      const user = await User.findByUserId(user_id);
-      if (!user) {
-        return callback({
-          code: grpc.status.NOT_FOUND,
-          message: 'User not found',
-        });
-      }
-
-      const userProfile = {
-        user_id: user.userId,
-        email: user.email,
-        role: user.role,
-        first_name: user.firstName,
-        last_name: user.lastName,
-        phone_number: user.phoneNumber,
-        driver_license_number: user.driverLicenseNumber,
-        driver_accreditation_number: user.driverAccreditationNumber,
-        is_active: user.isActive,
-        is_verified: user.isVerified,
-        created_at: user.createdAt.toISOString(),
-        updated_at: user.updatedAt.toISOString(),
-      };
-
-      // Cache user profile for 1 hour
-      await redisClient.setex(userCacheKey, 3600, JSON.stringify(userProfile));
+          return {
+            user_id: user.userId,
+            email: user.email,
+            role: user.role,
+            first_name: user.firstName,
+            last_name: user.lastName,
+            phone_number: user.phoneNumber,
+            driver_license_number: user.driverLicenseNumber,
+            driver_accreditation_number: user.driverAccreditationNumber,
+            is_active: user.isActive,
+            is_verified: user.isVerified,
+            created_at: user.createdAt.toISOString(),
+            updated_at: user.updatedAt.toISOString(),
+          };
+        },
+        3600 // 1 hour cache
+      );
 
       callback(null, {
         user: userProfile,
@@ -456,7 +499,7 @@ const authHandler = {
       await user.save();
 
       // Invalidate cache
-      await redisClient.del(`user:${user_id}:profile`);
+      await deleteFromCache(`user:${user_id}:profile`);
 
       const userProfile = {
         user_id: user.userId,
@@ -489,48 +532,39 @@ const authHandler = {
   ValidateSession: async (call, callback) => {
     try {
       const { session_id, user_id } = call.request;
-
-      // Check Redis cache first
       const sessionCacheKey = `session:${session_id}:valid`;
-      const cachedValidation = await redisClient.get(sessionCacheKey);
 
-      if (cachedValidation) {
-        const validation = JSON.parse(cachedValidation);
-        return callback(null, {
-          valid: validation.valid,
-          user_id: validation.user_id,
-          role: validation.role,
-        });
-      }
+      const result = await getWithCache(
+        sessionCacheKey,
+        async () => {
+          const session = await Session.findValidSession(session_id);
+          if (!session || session.userId !== user_id) {
+            return {
+              valid: false,
+              user_id: '',
+              role: '',
+            };
+          }
 
-      const session = await Session.findValidSession(session_id);
-      if (!session || session.userId !== user_id) {
-        return callback(null, {
-          valid: false,
-          user_id: '',
-          role: '',
-        });
-      }
+          const user = await User.findByUserId(user_id);
+          if (!user || !user.isActive) {
+            return {
+              valid: false,
+              user_id: '',
+              role: '',
+            };
+          }
 
-      const user = await User.findByUserId(user_id);
-      if (!user || !user.isActive) {
-        return callback(null, {
-          valid: false,
-          user_id: '',
-          role: '',
-        });
-      }
+          return {
+            valid: true,
+            user_id: user.userId,
+            role: user.role,
+          };
+        },
+        60 // 1 minute cache
+      );
 
-      const response = {
-        valid: true,
-        user_id: user.userId,
-        role: user.role,
-      };
-
-      // Cache session validation for 1 minute
-      await redisClient.setex(sessionCacheKey, 60, JSON.stringify(response));
-
-      callback(null, response);
+      callback(null, result);
     } catch (error) {
       logger.error('Session validation failed', { error: error.message });
       callback(null, {
@@ -545,39 +579,32 @@ const authHandler = {
   GetUserSessions: async (call, callback) => {
     try {
       const { user_id } = call.request;
-
-      // Check Redis cache first
       const sessionsCacheKey = `user:${user_id}:sessions`;
-      const cachedSessions = await redisClient.get(sessionsCacheKey);
 
-      if (cachedSessions) {
-        return callback(null, {
-          sessions: JSON.parse(cachedSessions),
-        });
-      }
-
-      const sessions = await Session.find({ userId: user_id, isValid: true })
-        .sort({ loginTime: -1 })
-        .limit(10);
-
-      const sessionResponses = sessions.map((session) => ({
-        session_id: session.sessionId,
-        user_id: session.userId,
-        device_info: session.deviceInfo.userAgent,
-        ip_address: session.deviceInfo.ipAddress,
-        login_time: session.loginTime.toISOString(),
-        expires_at: session.expiresAt.toISOString(),
-      }));
-
-      // Cache sessions for 5 minutes
-      await redisClient.setex(
+      const sessions = await getWithCache(
         sessionsCacheKey,
-        300,
-        JSON.stringify(sessionResponses)
+        async () => {
+          const dbSessions = await Session.find({
+            userId: user_id,
+            isValid: true,
+          })
+            .sort({ loginTime: -1 })
+            .limit(10);
+
+          return dbSessions.map((session) => ({
+            session_id: session.sessionId,
+            user_id: session.userId,
+            device_info: session.deviceInfo.userAgent,
+            ip_address: session.deviceInfo.ipAddress,
+            login_time: session.loginTime.toISOString(),
+            expires_at: session.expiresAt.toISOString(),
+          }));
+        },
+        300 // 5 minutes cache
       );
 
       callback(null, {
-        sessions: sessionResponses,
+        sessions,
       });
     } catch (error) {
       logger.error('Get user sessions failed', { error: error.message });
@@ -607,8 +634,8 @@ const authHandler = {
       await session.invalidate();
 
       // Invalidate cache
-      await redisClient.del(`session:${session_id}:valid`);
-      await redisClient.del(`user:${user_id}:sessions`);
+      await deleteFromCache(`session:${session_id}:valid`);
+      await deleteFromCache(`user:${user_id}:sessions`);
 
       callback(null, {
         success: true,

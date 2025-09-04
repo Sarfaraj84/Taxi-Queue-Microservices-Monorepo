@@ -1,42 +1,52 @@
-// server.js
+// auth-service/server.js
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
 const mongoose = require('mongoose');
-//const { InterceptingCall } = require('@grpc/grpc-js');
 
 // Import generated gRPC service
-//const { AuthService } = require('./generated/auth_grpc_pb');
+const protoDescriptor = grpc.loadPackageDefinition(
+  protoLoader.loadSync(path.join(__dirname, 'proto', 'auth.proto'), {
+    keepCase: true,
+    longs: String,
+    enums: String,
+    defaults: true,
+    oneofs: true,
+  })
+);
+
+const AuthService = protoDescriptor.auth.AuthServiceService;
 const authHandler = require('./handlers/authHandler');
+
+// Import all interceptors
 const {
-  logger /*authInterceptor, validationInterceptor*/,
+  logger,
+  authInterceptor,
+  validationInterceptor,
+  loggingInterceptor,
 } = require('./middleware/grpcMiddleware');
+
 const { connectRedis } = require('./utils/redisClient');
 
 // Load environment variables
 require('dotenv').config();
 
-const PROTO_PATH = path.join(__dirname, 'proto', 'auth.proto');
 const PORT = process.env.PORT || 50051;
 
-// Load proto file
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-  keepCase: true,
-  longs: String,
-  enums: String,
-  defaults: true,
-  oneofs: true,
-});
-
-const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
-
-const AuthService = protoDescriptor.auth.AuthServiceService;
-
-// Create gRPC server
+// Create gRPC server with interceptors
 const server = new grpc.Server();
 
-// Add service to server with interceptors
+// Add service to server with all interceptors
 server.addService(AuthService, authHandler);
+
+// Apply interceptors to all methods
+Object.keys(authHandler).forEach((methodName) => {
+  server.register(methodName, [
+    loggingInterceptor,
+    authInterceptor,
+    validationInterceptor,
+  ]);
+});
 
 // Graceful shutdown handling
 const gracefulShutdown = async () => {
