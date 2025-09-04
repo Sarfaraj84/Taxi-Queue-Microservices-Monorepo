@@ -1,10 +1,25 @@
+// server.js
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
+const mongoose = require('mongoose');
+//const { InterceptingCall } = require('@grpc/grpc-js');
+
+// Import generated gRPC service
+//const { AuthService } = require('./generated/auth_grpc_pb');
+const authHandler = require('./handlers/authHandler');
+const {
+  logger /*authInterceptor, validationInterceptor*/,
+} = require('./middleware/grpcMiddleware');
+const { connectRedis } = require('./utils/redisClient');
+
+// Load environment variables
 require('dotenv').config();
 
+const PROTO_PATH = path.join(__dirname, 'proto', 'auth.proto');
+const PORT = process.env.PORT || 50051;
+
 // Load proto file
-const PROTO_PATH = path.join(__dirname, 'proto/auth.proto');
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,
   longs: String,
@@ -13,44 +28,80 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   oneofs: true,
 });
 
-const authProto = grpc.loadPackageDefinition(packageDefinition).auth;
+const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
 
-// Import service implementation
-const Service = require('./services/authService');
+const AuthService = protoDescriptor.auth.AuthServiceService;
 
-class GrpcServer {
-  constructor() {
-    this.server = new grpc.Server();
-    this.port = process.env.GRPC_PORT || 50051;
-    this.service = new Service();
-  }
+// Create gRPC server
+const server = new grpc.Server();
 
-  start() {
-    this.server.addService(authProto.Service.service, {
-      Login: this.service.login.bind(this.service),
-      Register: this.service.register.bind(this.service),
-      VerifyToken: this.service.verifyToken.bind(this.service),
-      RefreshToken: this.service.refreshToken.bind(this.service),
-      HealthCheck: this.service.healthCheck.bind(this.service),
+// Add service to server with interceptors
+server.addService(AuthService, authHandler);
+
+// Graceful shutdown handling
+const gracefulShutdown = async () => {
+  console.log('Received shutdown signal. Shutting down gracefully...');
+
+  try {
+    // Try to shut down gracefully
+    server.tryShutdown(async () => {
+      await mongoose.connection.close();
+      console.log('MongoDB connection closed.');
+      process.exit(0);
     });
 
-    this.server.bindAsync(
-      `0.0.0.0:${this.port}`,
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      console.error(
+        'Could not close connections in time, forcefully shutting down'
+      );
+      process.exit(1);
+    }, 10000);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
+
+// Start server
+const startServer = async () => {
+  try {
+    // Connect to MongoDB
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log('Connected to MongoDB');
+
+    // Connect to Redis
+    await connectRedis();
+    console.log('Connected to Redis');
+
+    // Start gRPC server
+    server.bindAsync(
+      `0.0.0.0:${PORT}`,
       grpc.ServerCredentials.createInsecure(),
       (error, port) => {
         if (error) {
-          console.error('Failed to start gRPC server:', error);
-          return;
+          console.error('Failed to bind server:', error);
+          process.exit(1);
         }
-        console.log(`Service gRPC server running on port ${port}`);
-        this.server.start();
+        console.log(`Auth gRPC server running on port ${port}`);
+        logger.info(`Auth gRPC server started on port ${port}`);
       }
     );
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
+};
 
-  stop() {
-    this.server.forceShutdown();
-  }
+// Only start server if this file is run directly
+if (require.main === module) {
+  startServer();
 }
 
-module.exports = GrpcServer;
+module.exports = server;

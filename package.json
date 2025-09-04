@@ -70,5 +70,8 @@
     "docker"
   ],
   "author": "Sarfaraj Shahjahan",
-  "license": "Apache License 2.0"
+  "license": "Apache License 2.0",
+  "dependencies": {
+    "uuid": "^11.1.0"
+  }
 }
