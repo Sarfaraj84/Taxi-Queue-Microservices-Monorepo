@@ -1,57 +1,28 @@
+# docker-compose.yml
 version: '3.8'
 
-networks:
-  taxi-network:
-    driver: bridge
-  auth-network:
-    driver: bridge
-  user-network:
-    driver: bridge
-  queue-network:
-    driver: bridge
-  geo-network:
-    driver: bridge
-  vehicle-network:
-    driver: bridge
-  payment-network:
-    driver: bridge
-  config-network:
-    driver: bridge
-  redis-network:
-    driver: bridge
-  mongodb-network:
-    driver: bridge
-  postgres-network:
-    driver: bridge
-
-volumes:
-  auth-mongo-data:
-  user-mongo-data:
-  queue-mongo-data:
-  geo-postgres-data:
-  vehicle-mongo-data:
-  payment-mongo-data:
-  config-mongo-data:
-  redis-data:
-
 services:
-  # Redis (Shared across all services)
-  redis:
-    image: redis:alpine
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
     ports:
-      - '6379:6379'
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
+      - '3000:3000'
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    depends_on:
+      - auth-service
+      - user-service
+      - vehicle-service
+      - geo-service
     networks:
-      - redis-network
+      - api-gateway-network
       - auth-network
       - user-network
-      - queue-network
-      - payment-network
-      - config-network
+      - vehicle-network
+      - geo-network
 
-  # Auth Service
+  # Auth Service with its own Redis
   auth-service:
     build: ./auth-service
     ports:
@@ -59,27 +30,36 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=50051
-      - MONGODB_URI=mongodb://auth-mongo:27017/authdb
-      - REDIS_URL=redis://redis:6379/0
-    networks:
-      - taxi-network
-      - auth-network
-      - redis-network
-      - mongodb-network
+      - MONGODB_URI=mongodb://auth-mongodb:27017/auth
+      - REDIS_URL=redis://auth-redis:6379
+      - JWT_SECRET=your-super-secret-jwt-key-here
+      - JWT_REFRESH_SECRET=your-super-secret-refresh-key-here
     depends_on:
-      - auth-mongo
-      - redis
-
-  auth-mongo:
-    image: mongo:5
-    volumes:
-      - auth-mongo-data:/data/db
+      - auth-mongodb
+      - auth-redis
     networks:
       - auth-network
-      - mongodb-network
-    command: mongod --quiet --logpath /dev/null
 
-  # User Service
+  auth-mongodb:
+    image: mongo:6.0
+    environment:
+      - MONGO_INITDB_DATABASE=auth
+    volumes:
+      - auth_mongodb_data:/data/db
+      - ./auth-service/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - auth-network
+
+  auth-redis:
+    image: redis:7-alpine
+    volumes:
+      - auth_redis_data:/data
+      - ./redis/auth-redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - auth-network
+
+  # User Service with its own Redis
   user-service:
     build: ./user-service
     ports:
@@ -87,99 +67,121 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=50052
-      - MONGODB_URI=mongodb://user-mongo:27017/userdb
-      - REDIS_URL=redis://redis:6379/1
-    networks:
-      - taxi-network
-      - user-network
-      - redis-network
-      - mongodb-network
+      - MONGODB_URI=mongodb://user-mongodb:27017/user
+      - REDIS_URL=redis://user-redis:6379
     depends_on:
-      - user-mongo
-      - redis
-
-  user-mongo:
-    image: mongo:5
-    volumes:
-      - user-mongo-data:/data/db
+      - user-mongodb
+      - user-redis
     networks:
       - user-network
-      - mongodb-network
 
-  # Payment Service
-  payment-service:
-    build: ./payment-service
+  user-mongodb:
+    image: mongo:6.0
+    environment:
+      - MONGO_INITDB_DATABASE=user
+    volumes:
+      - user_mongodb_data:/data/db
+    networks:
+      - user-network
+
+  user-redis:
+    image: redis:7-alpine
+    volumes:
+      - user_redis_data:/data
+      - ./redis/user-redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - user-network
+
+  # Vehicle Service with its own Redis
+  vehicle-service:
+    build: ./vehicle-service
     ports:
-      - '50056:50056'
+      - '50053:50053'
     environment:
       - NODE_ENV=production
-      - PORT=50056
-      - MONGODB_URI=mongodb://payment-mongo:27017/paymentdb
-      - REDIS_URL=redis://redis:6379/5
-      - STRIPE_SECRET_KEY=sk_test_your_stripe_key
-    networks:
-      - taxi-network
-      - payment-network
-      - redis-network
-      - mongodb-network
+      - PORT=50053
+      - MONGODB_URI=mongodb://vehicle-mongodb:27017/vehicle
+      - REDIS_URL=redis://vehicle-redis:6379
     depends_on:
-      - payment-mongo
-      - redis
-
-  payment-mongo:
-    image: mongo:5
-    volumes:
-      - payment-mongo-data:/data/db
+      - vehicle-mongodb
+      - vehicle-redis
     networks:
-      - payment-network
-      - mongodb-network
-
-  # Config Service
-  config-service:
-    build: ./config-service
-    ports:
-      - '50057:50057'
-    environment:
-      - NODE_ENV=production
-      - PORT=50057
-      - MONGODB_URI=mongodb://config-mongo:27017/configdb
-      - REDIS_URL=redis://redis:6379/6
-    networks:
-      - taxi-network
-      - config-network
-      - redis-network
-      - mongodb-network
-    depends_on:
-      - config-mongo
-      - redis
-
-  config-mongo:
-    image: mongo:5
-    volumes:
-      - config-mongo-data:/data/db
-    networks:
-      - config-network
-      - mongodb-network
-
-  # API Gateway (Access to all networks)
-  api-gateway:
-    build: ./api-gateway
-    ports:
-      - '3000:3000'
-    networks:
-      - taxi-network
-      - auth-network
-      - user-network
-      - queue-network
-      - geo-network
       - vehicle-network
-      - payment-network
-      - config-network
+
+  vehicle-mongodb:
+    image: mongo:6.0
+    environment:
+      - MONGO_INITDB_DATABASE=vehicle
+    volumes:
+      - vehicle_mongodb_data:/data/db
+    networks:
+      - vehicle-network
+
+  vehicle-redis:
+    image: redis:7-alpine
+    volumes:
+      - vehicle_redis_data:/data
+      - ./redis/vehicle-redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - vehicle-network
+
+  # Geo Service with its own Redis
+  geo-service:
+    build: ./geo-service
+    ports:
+      - '50054:50054'
+    environment:
+      - NODE_ENV=production
+      - PORT=50054
+      - POSTGRES_URL=postgresql://geo-postgres:5432/geo
+      - REDIS_URL=redis://geo-redis:6379
     depends_on:
-      - auth-service
-      - user-service
-      - queue-service
-      - geo-service
-      - vehicle-service
-      - payment-service
-      - config-service
+      - geo-postgres
+      - geo-redis
+    networks:
+      - geo-network
+
+  geo-postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=geo
+      - POSTGRES_USER=geo
+      - POSTGRES_PASSWORD=geo-password
+    volumes:
+      - geo_postgres_data:/var/lib/postgresql/data
+      - ./geo-service/scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - geo-network
+
+  geo-redis:
+    image: redis:7-alpine
+    volumes:
+      - geo_redis_data:/data
+      - ./redis/geo-redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - geo-network
+
+volumes:
+  auth_mongodb_data:
+  auth_redis_data:
+  user_mongodb_data:
+  user_redis_data:
+  vehicle_mongodb_data:
+  vehicle_redis_data:
+  geo_postgres_data:
+  geo_redis_data:
+
+networks:
+  api-gateway-network:
+    driver: bridge
+  auth-network:
+    driver: bridge
+  user-network:
+    driver: bridge
+  vehicle-network:
+    driver: bridge
+  geo-network:
+    driver: bridge

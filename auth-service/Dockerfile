@@ -1,20 +1,43 @@
+# auth-service/Dockerfile
 FROM node:24-alpine
 
+# Install dependencies for node-gyp
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++
+
+# Create app directory
 WORKDIR /app
 
-# Install grpc-tools and python for proto compilation
-RUN apk add --no-cache python3 make g++ && \
-    npm install -g grpc-tools
-
+# Copy package files
 COPY package*.json ./
-RUN npm install --only=production
 
-COPY src/ ./src/
-COPY .env ./
+# Install dependencies (using npm)
+RUN npm ci --only=production
 
-# Compile proto files
-RUN npm run compile-proto
+# Copy source code
+COPY . .
 
-EXPOSE ${PORT}
+# Create logs directory
+RUN mkdir -p logs
 
-CMD ["npm", "start"]
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S auth-service -u 1001
+
+# Change ownership of app directory
+RUN chown -R auth-service:nodejs /app
+
+# Switch to non-root user
+USER auth-service
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node healthcheck.js
+
+# Expose port
+EXPOSE 50051
+
+# Start command
+CMD ["node", "server.js"]
