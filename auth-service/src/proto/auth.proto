@@ -3,67 +3,153 @@ syntax = "proto3";
 package auth;
 
 service AuthService {
-  rpc HealthCheck (HealthRequest) returns (HealthResponse) {};
-  rpc Login (LoginRequest) returns (LoginResponse) {};
-  rpc Register (RegisterRequest) returns (RegisterResponse) {};
-  rpc VerifyToken (TokenRequest) returns (TokenResponse) {};
-  rpc RefreshToken (TokenRequest) returns (TokenResponse) {};
+  // User management
+  rpc RegisterUser (RegisterRequest) returns (RegisterResponse);
+  rpc LoginUser (LoginRequest) returns (LoginResponse);
+  rpc VerifyToken (VerifyTokenRequest) returns (VerifyTokenResponse);
+  rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc LogoutUser (LogoutRequest) returns (LogoutResponse);
+  rpc GetUserProfile (GetUserRequest) returns (UserProfileResponse);
+  rpc UpdateUserProfile (UpdateUserRequest) returns (UserProfileResponse);
+  
+  // Session management
+  rpc ValidateSession (ValidateSessionRequest) returns (ValidateSessionResponse);
+  rpc GetUserSessions (GetSessionsRequest) returns (GetSessionsResponse);
+  rpc RevokeSession (RevokeSessionRequest) returns (RevokeSessionResponse);
 }
 
-message HealthRequest {
-  string service = 1;
+// Request/Response messages
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string role = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string phone_number = 6;
+  string driver_license_number = 7;
+  string driver_accreditation_number = 8;
 }
 
-message HealthResponse {
-  string status = 1;
-  string message = 2;
-  string timestamp = 3;
-  int32 userCount = 4;
+message RegisterResponse {
+  string user_id = 1;
+  string email = 2;
+  string role = 3;
+  string message = 4;
 }
 
 message LoginRequest {
   string email = 1;
   string password = 2;
+  string device_info = 3;
+  string ip_address = 4;
 }
 
 message LoginResponse {
-  bool success = 1;
-  string message = 2;
-  string token = 3;
-  string refreshToken = 4;
-  User user = 5;
+  string user_id = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 expires_in = 4;
+  UserProfile user = 5;
 }
 
-message RegisterRequest {
-  string email = 1;
-  string password = 2;
-  string firstName = 3;
-  string lastName = 4;
-  string phoneNumber = 5;
-}
-
-message RegisterResponse {
-  bool success = 1;
-  string message = 2;
-  string userId = 3;
-}
-
-message TokenRequest {
+message VerifyTokenRequest {
   string token = 1;
 }
 
-message TokenResponse {
+message VerifyTokenResponse {
   bool valid = 1;
-  string userId = 2;
-  string email = 3;
-  string message = 4;
+  string user_id = 2;
+  string role = 3;
+  int64 expires_at = 4;
 }
 
-message User {
-  string id = 1;
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+}
+
+message LogoutRequest {
+  string user_id = 1;
+  string session_id = 2;
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string phone_number = 4;
+  string driver_license_number = 5;
+  string driver_accreditation_number = 6;
+}
+
+message UserProfileResponse {
+  UserProfile user = 1;
+}
+
+message ValidateSessionRequest {
+  string session_id = 1;
+  string user_id = 2;
+}
+
+message ValidateSessionResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string role = 3;
+}
+
+message GetSessionsRequest {
+  string user_id = 1;
+}
+
+message GetSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string session_id = 1;
+  string user_id = 2;
+}
+
+message RevokeSessionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Data models
+message UserProfile {
+  string user_id = 1;
   string email = 2;
-  string firstName = 3;
-  string lastName = 4;
-  string phoneNumber = 5;
-  string role = 6;
+  string role = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string phone_number = 6;
+  string driver_license_number = 7;
+  string driver_accreditation_number = 8;
+  bool is_active = 9;
+  bool is_verified = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message Session {
+  string session_id = 1;
+  string user_id = 2;
+  string device_info = 3;
+  string ip_address = 4;
+  string login_time = 5;
+  string expires_at = 6;
 }
